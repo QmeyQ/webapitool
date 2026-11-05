@@ -1,6 +1,7 @@
 {
   "DEFAULT_PORT": 9222,
   "DEFAULT_SITE": "chatgpt.com",
+  "PROXY_SERVER": "http://127.0.0.1:7897",
   "INSTANCES": [
     {
       "name": "acc1",

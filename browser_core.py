@@ -50,6 +50,40 @@ import send_verify
 DIRECT_TOOL_DEBUG = False
 
 
+# 多实例编辑器站点的输入元素解析（挂到 window 上供本模块各段 JS 复用）。
+#
+# ChatGPT 点"新聊天"后 DOM 里会同时留着新旧两组 composer，文档序第一个常是
+# 已废弃的隐藏实例；而 DrissionPage 的 finder 可能命中另一个。写入用 A、读回
+# 用 B 时，读回恒为 0 → 被报成"编辑器拒绝注入"，真实原因只是选错了实例。
+# 统一规则：可见优先，聚焦者优先，否则取最后一个可见者（与旧兜底一致）。
+_EDITOR_RESOLVE_INSTALL_JS = """
+if (typeof window.__pickEditor !== 'function') {
+  window.__pickEditor = function (sel) {
+    var vis = function (e) {
+      return !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
+    };
+    var cands = [];
+    try { cands = Array.from(document.querySelectorAll(sel || '')); }
+    catch (e) { cands = []; }
+    if (!cands.length) {
+      cands = Array.from(document.querySelectorAll(
+        '[contenteditable="true"],[contenteditable="plaintext-only"],'
+        + '.ProseMirror,#prompt-textarea,textarea'));
+    }
+    var live = cands.filter(vis);
+    var pool = live.length ? live : cands;
+    if (!pool.length) return null;
+    var act = document.activeElement;
+    for (var i = 0; i < pool.length; i++) {
+      if (pool[i] === act) return pool[i];
+    }
+    return pool[pool.length - 1];
+  };
+}
+return 1;
+"""
+
+
 class BrowserConstants:
     """浏览器相关常量"""
 
@@ -59,6 +93,7 @@ class BrowserConstants:
     _DEFAULTS = {
         'DEFAULT_PORT': 9222,
         'CONNECTION_TIMEOUT': 10,
+        'EDITOR_READY_TIMEOUT': 30,
         'STEALTH_DELAY_MIN': 0.1,
         'STEALTH_DELAY_MAX': 0.3,
         'ACTION_DELAY_MIN': 0.15,
@@ -210,31 +245,34 @@ def _resolve_profile_dir(raw: str) -> str:
 # 站点页面是否还处在"能输入"的状态：错误页 / 登录墙 / 无可见输入控件
 _PAGE_STATE_JS = """
 var out = {url: location.href || '', err_code: '',
-           visible_editors: 0, login_wall: 0, btn_texts: ''};
+           rich_editors: 0, plain_textareas: 0, login_ctas: 0, btn_texts: ''};
 var bt = (document.body && document.body.innerText) || '';
 var m = bt.match(/ERR_[A-Z0-9_]+/);
 if (m) { out.err_code = m[0]; }
-var sel = ['[contenteditable="true"]', '[contenteditable="plaintext-only"]',
-           '.ProseMirror', 'textarea', '#prompt-textarea'];
-for (var i = 0; i < sel.length; i++) {
-  var els = document.querySelectorAll(sel[i]);
+var rich = ['[contenteditable="true"]', '[contenteditable="plaintext-only"]',
+            '.ProseMirror', '#prompt-textarea'];
+for (var i = 0; i < rich.length; i++) {
+  var els = document.querySelectorAll(rich[i]);
   for (var j = 0; j < els.length; j++) {
     var e = els[j];
     if ((e.offsetWidth > 40 || e.offsetHeight > 16) &&
         (e.offsetWidth || e.offsetHeight || e.getClientRects().length)) {
-      out.visible_editors++;
+      out.rich_editors++;
     }
   }
 }
-if (!out.visible_editors) {
-  var btns = document.querySelectorAll('a,button,[role="button"]');
-  var hits = [];
-  for (var k = 0; k < btns.length && hits.length < 3; k++) {
-    var t = (btns[k].innerText || btns[k].getAttribute('aria-label') || '').trim();
-    if (/^(log in|log_in|sign in|sign up|register|get started|continue with|登录|注册|开始使用|立即登录)/i.test(t)) { hits.push(t.slice(0, 12)); }
-  }
-  if (hits.length) { out.login_wall = 1; out.btn_texts = hits.join('|'); }
+var tas = document.querySelectorAll('textarea');
+for (var k = 0; k < tas.length; k++) {
+  var a = tas[k];
+  if (a.offsetWidth > 40 || a.offsetHeight > 16) { out.plain_textareas++; }
 }
+var btns = document.querySelectorAll('button,a,[role="button"]');
+var hits = [];
+for (var n = 0; n < btns.length; n++) {
+  var t = (btns[n].innerText || btns[n].getAttribute('aria-label') || '').trim();
+  if (/^(log in|log_in|sign in|sign up|register|get started|continue with|登录|注册|开始使用|立即登录|免费注册)/i.test(t)) { hits.push(t.slice(0, 12)); }
+}
+if (hits.length) { out.login_ctas = hits.length; out.btn_texts = hits.slice(0, 3).join('|'); }
 return out;
 """
 
@@ -263,18 +301,21 @@ def probe_page_state(tab) -> dict:
     url = str(d.get("url") or "")
     if (url.startswith("chrome-error://")
             or url.startswith("about:neterror") or d.get("err_code")):
-        return {"state": "error_page",
+        return {"state": "error_page", "raw": d,
                 "detail": (f"站点页面加载失败 "
                            f"({d.get('err_code') or '错误页'}，"
                            f"当前 URL {url[:60]})")}
-    if d.get("login_wall"):
-        return {"state": "need_login",
+    # 登录 CTA 与富文本编辑器分开判定：ChatGPT 登出态页面上仍有一个
+    # textarea 占位，只按"有没有输入控件"会被误判成可用页面
+    if d.get("login_ctas") and not d.get("rich_editors"):
+        return {"state": "need_login", "raw": d,
                 "detail": (f"页面停在登录墙（出现 "
-                           f"{d.get('btn_texts') or '登录/注册'} 入口、"
-                           "无输入控件）")}
-    if not d.get("visible_editors"):
-        return {"state": "no_editor", "detail": "页面上没有可见输入控件"}
-    return {"state": "ok", "detail": ""}
+                           f"{d.get('btn_texts') or '登录/注册'} 入口，"
+                           "且没有真正的富文本编辑器）")}
+    if not (d.get("rich_editors") or d.get("plain_textareas")):
+        return {"state": "no_editor", "raw": d,
+                "detail": "页面上没有可见输入控件"}
+    return {"state": "ok", "raw": d, "detail": ""}
 
 
 def _drission_find(tab, selector: str, timeout: int = 1):
@@ -3146,15 +3187,33 @@ class WorkflowExecutor:
 
     # ---------- 页面可用性守卫 ----------
     # 页面上所有 file input 的"能不能吃下这个文件"事实，交由 Python 侧评分
-    _FILE_INPUT_FACTS_JS = (
-        "return Array.from(document.querySelectorAll("
-        "'input[type=\"file\"]')).map(function(el,i){"
-        "var f=el.closest('form');"
-        "return {i:i,accept:(el.accept||'').toLowerCase().trim(),"
-        "multiple:!!el.multiple,"
-        "in_editor_form:!!(f&&f.querySelector("
-        "'.ProseMirror,[contenteditable=\"true\"],textarea')),"
-        "hidden:!(el.offsetWidth||el.offsetHeight)};});")
+    _FILE_INPUT_FACTS_JS = """
+function visible(e) {
+  return !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
+}
+var act = document.activeElement;
+return Array.from(document.querySelectorAll('input[type="file"]')).map(
+  function (el, i) {
+    var f = el.closest('form');
+    var eds = f ? Array.from(f.querySelectorAll(
+      '.ProseMirror,[contenteditable="true"],textarea')) : [];
+    var visEds = eds.filter(visible);
+    return {
+      i: i,
+      accept: (el.accept || '').toLowerCase().trim(),
+      multiple: !!el.multiple,
+      in_editor_form: !!f && eds.length > 0,
+      in_visible_editor_form: visEds.length > 0,
+      // 点"新聊天"后 SPA 会重挂输入区，旧 composer 的上传口还在 DOM 里
+      // 但已废弃：注入它不报错、附件却永远不出现。以"当前聚焦的那组"为准。
+      in_focused_editor_form: !!(act && f && f.contains(act)
+                                 && visEds.indexOf(act) >= 0),
+      editor_top: visEds.length ? Math.round(
+        visEds[0].getBoundingClientRect().top) : -1,
+      hidden: !visible(el)
+    };
+  });
+"""
 
     # 常见扩展名 → MIME/子类型，用于按 accept 判断可用性
     _UPLOAD_MIME = {
@@ -3188,6 +3247,39 @@ class WorkflowExecutor:
             logger.error(f"[Page] {where} 中止：{st['detail']}")
             raise PageUnavailableError(st["state"], st["detail"])
         return st
+
+    # 上传失败时收集站点自己的说法（免费版限制、格式拒绝等）与上传口状态，
+    # 用来区分"账号没额度"和"注到了别的口"——两者处置完全不同
+    _UPLOAD_REJECTION_JS = """
+var msgs = [];
+var nodes = document.querySelectorAll(
+  '[role="alert"],[aria-live="assertive"],[data-testid*="error"],[class*="error" i]');
+for (var i = 0; i < nodes.length && msgs.length < 3; i++) {
+  var t = (nodes[i].innerText || '').replace(/\\s+/g, ' ').trim();
+  if (t && t.length > 3 && t.length < 200) { msgs.push(t); }
+}
+var fs = document.querySelectorAll('input[type="file"]');
+var ports = [];
+for (var k = 0; k < fs.length && k < 6; k++) {
+  ports.push((fs[k].accept || '空') + (fs[k].disabled ? '(禁用)' : '')
+             + (fs[k].isEnabled === false ? '(不可用)' : ''));
+}
+return {msgs: msgs, ports: ports};
+"""
+
+    def _collect_upload_rejection(self) -> str:
+        try:
+            d = self.tab.run_js(self._UPLOAD_REJECTION_JS)
+        except Exception:
+            return ""
+        if not isinstance(d, dict):
+            return ""
+        parts = []
+        if d.get("msgs"):
+            parts.append("站点提示：" + " / ".join(d["msgs"])[:220])
+        if d.get("ports"):
+            parts.append("上传口状态：" + ", ".join(d["ports"]))
+        return ("；" + "；".join(parts)) if parts else ""
 
     def _pick_upload_input(self, file_path: str):
         """在页面所有 file input 中挑真正能接收该文件的那个。
@@ -3231,8 +3323,12 @@ class WorkflowExecutor:
                             s = max(s, 2.0)
                     elif mimes and p in mimes:
                         s = max(s, 2.0)
-            if f.get("in_editor_form"):
-                s += 2.0   # 与可见编辑器同属一个 form = composer 的上传口
+            if f.get("in_focused_editor_form"):
+                s += 3.5   # 当前聚焦的 composer —— 唯一能让附件真正上屏的
+            elif f.get("in_visible_editor_form"):
+                s += 2.0
+            elif f.get("in_editor_form"):
+                s -= 1.5   # 属于已废弃/隐藏的 composer：注入不报错但附件不出现
             if f.get("multiple"):
                 s += 0.5   #  composer 文档口多为 multiple
             return s
@@ -3251,8 +3347,9 @@ class WorkflowExecutor:
         logger.info(
             f"[Upload] 选用 file input #{idx} "
             f"(accept='{info.get('accept') or ''}', "
-            f"composer 内={bool(info.get('in_editor_form'))}) "
-            f"承载 .{ext}")
+            f"聚焦composer={bool(info.get('in_focused_editor_form'))}, "
+            f"可见composer={bool(info.get('in_visible_editor_form'))}, "
+            f"编辑器top={info.get('editor_top', -1)}) 承载 .{ext}")
         return els[idx]
 
     def _execute_fill(self, selector: str, text: str,
@@ -3263,6 +3360,11 @@ class WorkflowExecutor:
         # 错误页/登录墙下填充不可能成功：带真实原因立即失败，
         # 不要浪费 30s 走"清空重写→分块 execCommand→回退直输"
         self._guard_page_usable("填充")
+        # 写入与读回必须落在同一个元素上（多实例 composer，见 __pickEditor）
+        try:
+            self.tab.run_js(_EDITOR_RESOLVE_INSTALL_JS)
+        except Exception as e:
+            logger.debug(f"[Fill] 元素解析器安装失败: {e}")
         # 填充期间可能把消息直接发出去（Enter 发送型站点：fill 的
         # ele.input 遇文本换行触发提交，输入框随即被清空）。基线对比
         # 能把这种情况和"写入失败"区分开——后者才需要清空重写。
@@ -3330,10 +3432,7 @@ class WorkflowExecutor:
                 try:
                     self.tab.run_js(
                         "try{const sel=%s;"
-                        "let el=document.querySelector(sel);"
-                        "if(!el){let ces=document.querySelectorAll("
-                        "'[contenteditable=true]');"
-                        "el=ces.length?ces[ces.length-1]:null;}"
+                        "let el=__pickEditor(sel);"
                         "if(el){el.focus();"
                         "document.execCommand('selectAll',false,null);"
                         "document.execCommand('delete',false,null);"
@@ -3349,10 +3448,7 @@ class WorkflowExecutor:
             # 读回少 703 = 换行数）→ contenteditable 用 innerText 保留换行
             _chk_js = ("try{"
                        "const sel=%s;"
-                       "let el=document.querySelector(sel);"
-                       "if(!el){let ces=document.querySelectorAll("
-                       "'[contenteditable=true]');"
-                       "el=ces.length?ces[ces.length-1]:null;}"
+                       "let el=__pickEditor(sel);"
                        "if(!el)return '';"
                        "return el.isContentEditable ? "
                        "(el.innerText||'') : (el.value||el.textContent||'');"
@@ -3390,10 +3486,7 @@ class WorkflowExecutor:
                 try:
                     self.tab.run_js(
                         "try{const sel=%s;"
-                        "let el=document.querySelector(sel);"
-                        "if(!el){let ces=document.querySelectorAll("
-                        "'[contenteditable=true]');"
-                        "el=ces.length?ces[ces.length-1]:null;}"
+                        "let el=__pickEditor(sel);"
                         "if(el){el.focus();"
                         "document.execCommand('selectAll',false,null);"
                         "document.execCommand('delete',false,null);}}catch(e){}"
@@ -3419,10 +3512,7 @@ class WorkflowExecutor:
                                    for i in range(0, len(text), 4000)]
                         _chunk_js = (
                             "try{const sel=%s;"
-                            "let el=document.querySelector(sel);"
-                            "if(!el){let ces=document.querySelectorAll("
-                            "'[contenteditable=true]');"
-                            "el=ces.length?ces[ces.length-1]:null;}"
+                            "let el=__pickEditor(sel);"
                             "if(el){el.focus();"
                             "document.execCommand('selectAll',false,null);"
                             "document.execCommand('delete',false,null);"
@@ -3562,7 +3652,8 @@ class WorkflowExecutor:
                         _st["state"],
                         "可能额度耗尽/被站点拒绝，或注入到了非文档上传口")
             raise ElementNotFoundError(
-                f"附件未出现在页面（上传假阳性：{_why}）: {fname}")
+                f"附件未出现在页面（上传假阳性：{_why}"
+                f"{self._collect_upload_rejection()}）: {fname}")
         logger.info(f"[Upload] 附件已验证可见: {fname}")
 
     def _verify_attachment_visible(self, file_name: str) -> bool:
@@ -5086,11 +5177,21 @@ class BrowserCore:
             # 直接打开默认站点（不留 about:blank 空白页，
             # 与 Dashboard 新增账号行为一致，窗口弹出即可登录）
             default_site = cfg.get('DEFAULT_SITE') or 'chatgpt.com'
+            args = [chrome, f"--remote-debugging-port={port}",
+                    f"--user-data-dir={udd}",
+                    "--no-first-run", "--no-default-browser-check"]
+            # 必须显式传代理：服务以 LocalSystem 运行时子进程 Chrome 读不到
+            # HKCU 的系统代理设置（ProxyServer=127.0.0.1:7897），会退回直连，
+            # 对 chatgpt.com 只会得到 ERR_CONNECTION_TIMED_OUT，而页面一旦被
+            # 判成"无输入框/上传假阳性"，排查方向就被带去怀疑站点与额度。
+            proxy = (cfg.get('PROXY_SERVER') or "").strip()
+            if proxy:
+                args.append(f"--proxy-server={proxy}")
+                logger.info(f"[Instance] 显式使用代理 {proxy}"
+                            "（服务上下文读不到用户系统代理）")
+            args.append(f"https://{default_site}")
             subprocess.Popen(
-                [chrome, f"--remote-debugging-port={port}",
-                 f"--user-data-dir={udd}",
-                 "--no-first-run", "--no-default-browser-check",
-                 f"https://{default_site}"],
+                args,
                 creationflags=subprocess.DETACHED_PROCESS
                 | subprocess.CREATE_NEW_PROCESS_GROUP)
             logger.info(f"[Instance] 已自动启动账号实例 :{port} "
@@ -5329,6 +5430,48 @@ class BrowserCore:
             return ""
 
 
+    def _wait_for_composer(self, tab, domain: str,
+                           timeout: Optional[int] = None) -> dict:
+        """等站点把输入控件渲染出来再开始操作。
+
+        导航后固定 sleep(4) 对 ChatGPT 冷启动不够（首连、切号后常见 10~20s
+        才出 composer），而 FILL 的元素超时只有 3s，于是报"找不到输入框"
+        "no-el"，上层当成站点控件/额度问题去轮转账号，真因只是没等页面就绪。
+        错误页与登录墙提前退出——继续等下去没有意义，让守卫给出真因。"""
+        if timeout is None:
+            try:
+                timeout = int(BrowserConstants.get("EDITOR_READY_TIMEOUT") or 30)
+            except Exception:
+                timeout = 30
+        # ChatGPT 一进来先渲染带"登录/免费注册"的静态外壳，几秒后才水合成
+        # 已登录应用；need_login 要连续成立一段时间才算真的未登录，
+        # 否则水合期会被误判成登录墙（18:09 实测把登录着的 acc3 判死）。
+        grace = 10.0
+        t0 = time.time()
+        st = probe_page_state(tab)
+        login_since = None
+        while st.get("state") not in ("ok", "error_page") \
+                and time.time() - t0 < max(3, timeout):
+            if st.get("state") == "need_login":
+                if login_since is None:
+                    login_since = time.time()
+                elif time.time() - login_since >= grace:
+                    break
+            else:
+                login_since = None
+            time.sleep(1.0)
+            st = probe_page_state(tab)
+        waited = time.time() - t0
+        if st.get("state") == "ok":
+            if waited > 1.5:
+                logger.info(f"[Route] {domain} 输入区就绪，额外等待 "
+                            f"{waited:.1f}s")
+        else:
+            logger.warning(
+                f"[Route] {domain} 页面未就绪（等待 {waited:.1f}s）："
+                f"{st.get('detail') or st.get('state')}")
+        return st
+
     def resolve_tab_for_model(self, model: Optional[str], messages=None):
         """按 model id 解析目标站点与发消息 tab。
 
@@ -5431,6 +5574,9 @@ class BrowserCore:
                     time.sleep(4)
         except Exception:
             pass
+        # 就绪等待：composer 没渲染就往下走，FILL 只会拿到
+        # "找不到输入框/no-el"，然后被误判成站点控件问题去切号
+        self._wait_for_composer(tab, domain)
         # session_new：该消息指纹已有发送基准（_fp_last_payload）→ 续传
         # 轮（启用压缩）；否则新会话全量重放。与 tab 无关——原 fp 绑定
         # 命中/新开的等价判定（2026-11-05 删除切 tab 逻辑后保留语义）

@@ -1442,6 +1442,17 @@ async def save_browser_constants(
         raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
 # ================= 多账号实例管理 API =================
 
+def _chrome_proxy_args() -> list:
+    """Chrome 启动参数里的显式代理。
+
+    服务以 LocalSystem 身份运行时，子进程 Chrome 读的是 SYSTEM 的代理设置，
+    拿不到当前用户 HKCU 的 ProxyServer（Clash/verge-mihomo 的 127.0.0.1:7897），
+    于是退回直连并在站点上得到 ERR_CONNECTION_TIMED_OUT 错误页——上层只会看到
+    "找不到输入框/上传假阳性"。配置项 PROXY_SERVER 为空时行为不变。"""
+    proxy = str(BrowserConstants.get("PROXY_SERVER") or "").strip()
+    return [f"--proxy-server={proxy}"] if proxy else []
+
+
 def _find_chrome_exe() -> Optional[str]:
     candidates = [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -1579,6 +1590,7 @@ async def create_instance(request: Request,
             [chrome, f"--remote-debugging-port={port}",
              f"--user-data-dir={profile_dir}",
              "--no-first-run", "--no-default-browser-check",
+             *_chrome_proxy_args(),
              f"https://{default_site}"],
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
         inst = {"name": name, "port": port, "user_data_dir": profile_dir}
@@ -1620,6 +1632,7 @@ async def launch_instance(name: str, authenticated: bool = Depends(verify_auth))
             [chrome, f"--remote-debugging-port={port}",
              f"--user-data-dir={profile_dir}",
              "--no-first-run", "--no-default-browser-check",
+             *_chrome_proxy_args(),
              f"https://{default_site}"],
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
         logger.info(f"[Instance] 已启动实例 {name}:{port}")
