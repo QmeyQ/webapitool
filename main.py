@@ -19,8 +19,26 @@ import asyncio
 import faulthandler
 import subprocess
 
-_fault_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "faulthandler.log")
+LOG_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log")
+
+
+def _log_dir(category: str) -> str:
+    """日志分类目录，全部落在 log/ 下并按用途分档：
+
+    log/app        服务运行日志（RotatingFileHandler 写的 server.log）
+    log/error      错误与崩溃现场（faulthandler、未捕获异常）
+    log/supervisor 进程管理器捕获的 stdout/stderr（nssm 直接写文件，
+                   目录必须在进程启动前就存在，故由启动脚本创建）
+    log/archive    迁移进来的历史日志
+
+    log/ 整体不入库（见 .gitignore），所以目录必须运行时自建，
+    新克隆才能直接启动。"""
+    path = os.path.join(LOG_ROOT, category)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+_fault_log_path = os.path.join(_log_dir("error"), "faulthandler.log")
 _fault_log = open(_fault_log_path, "w", encoding="utf-8", buffering=1)
 faulthandler.enable(_fault_log)
 import sys
@@ -129,10 +147,10 @@ logging.basicConfig(
 )
 
 # 文件日志：无论进程以何种方式启动（WMI/计划任务/无控制台），
-# 日志始终落盘到 server.log，避免排查问题时丢失输出
+# 日志始终落盘到 log/app/server.log，避免排查问题时丢失输出
 from logging.handlers import RotatingFileHandler
 _file_handler = RotatingFileHandler(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "server.log"),
+    os.path.join(_log_dir("app"), "server.log"),
     maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter(
     '[%(asctime)s] %(levelname)s [%(name)s] %(message)s',

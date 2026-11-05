@@ -38,7 +38,7 @@
 | 文件 | 差异 | 主要修改内容 |
 | --- | --- | --- |
 | `browser_core.py` | +5518 / −788 | 浏览器自动化核心大幅扩展：IDE 工具调用兼容（`ToolSchemaConformer` 对齐 OpenAI / Anthropic `input_schema` / Gemini `parameters` 三种工具声明风格；`ToolCallStreamParser` 支持 5 种工具调用文本格式；续聊保留 `tool_calls` 配对）；深度思考走 `reasoning_content` 独立通道，不再混入正文；流式头部净化（角色回显、"已深度思考"等 UI 叙述行不再泄漏）；长提示词附件上传与分片路由（FILE / CHUNKED 策略、附件可见性复查防止"带附件分片"）；多 UI 变体选择器兼容；DeepSeek "继续"按钮点击等站点专用处理。<br>**2026-11-05 网页链路修复**：`_resolve_profile_dir()` 按项目根解析账号 profile，绝对路径失效时自动改道并告警；`probe_page_state()` + `PageUnavailableError` 页面可用性守卫（区分错误页 / 登录墙 / 无 composer）；`_wait_for_composer()` 等待 SPA 渲染出输入区（含登录墙水合稳定期），替代导航后固定 `sleep(4)`；`_pick_upload_input()` 按 `accept` 与"是否属于当前聚焦 composer"选择上传口，修掉向 `accept=image/*` 的口注入 `.txt` 的静默失败；`_EDITOR_RESOLVE_INSTALL_JS`/`__pickEditor` 统一写入与读回的元素解析（多实例 composer 下不再"写 A 验 B"）；`_collect_upload_rejection()` 采集站点自身的拒绝提示；`_launch_instance_chrome()` 支持显式 `--proxy-server` |
-| `main.py` | +961 / −62 | FastAPI 入口扩展：`faulthandler` 崩溃落盘、多账号实例管理接口（`/api/instances` 增删与启动）、长消息分片等运行期配置项、与 `RequestManager` 的并发控制集成调整。**2026-11-05**：新增 `_chrome_proxy_args()`，两处 Chrome 启动均带上显式代理（服务以 LocalSystem 运行时读不到用户 HKCU 的 `ProxyServer`）；`_recover_page()` 遇到错误页（机器级故障）直接短路，不再轮转账号并 kill/重启浏览器；`PageUnavailableError` 单独上报真实原因；取标签页改用 `BrowserCore.current_tab()`（此前 `browser.tab` 恒为 `None`，"零输出刷新自恢复"从未真正执行）；`_cleanup_upload_dir()` 在应用启动时清理 `uploads\prompt_*`（服务由 nssm 直接跑 `python main.py`，不经 start.bat，故清理必须落在 lifespan 里才生效） |
+| `main.py` | +979 / −62 | FastAPI 入口扩展：`faulthandler` 崩溃落盘、多账号实例管理接口（`/api/instances` 增删与启动）、长消息分片等运行期配置项、与 `RequestManager` 的并发控制集成调整。**2026-11-05**：新增 `_chrome_proxy_args()`，两处 Chrome 启动均带上显式代理（服务以 LocalSystem 运行时读不到用户 HKCU 的 `ProxyServer`）；`_recover_page()` 遇到错误页（机器级故障）直接短路，不再轮转账号并 kill/重启浏览器；`PageUnavailableError` 单独上报真实原因；取标签页改用 `BrowserCore.current_tab()`（此前 `browser.tab` 恒为 `None`，"零输出刷新自恢复"从未真正执行）；`_cleanup_upload_dir()` 在应用启动时清理 `uploads\prompt_*`（服务由 nssm 直接跑 `python main.py`，不经 start.bat，故清理必须落在 lifespan 里才生效）；日志按用途分档：新增 `LOG_ROOT` 与 `_log_dir(category)`，运行日志写 `log/app/server.log`、崩溃现场写 `log/error/faulthandler.log`（`log/` 整体不入库，目录运行时自建） |
 | `config_engine.py` | +86 / −14 | 选择器校验支持多 UI 列表变体（逐条校验、只剔除无效条目）；新增 `normalize_selector_group()` 将选择器列表归一化为 CSS 逗号分组串；配置快照 `_normalized_snapshot()` 统一输出字符串形态，保证下游消费者假设不变 |
 | `data_models.py` | +199 / −297 | 动作类型新增 `UPLOAD_FILE`；选择器字段新增 `upload_btn`、`file_input`（DrissionPage 经 CDP 注入 `<input type="file">`）；类型定义与注释精简重构 |
 | `request_manager.py` | +79 / −30 | 请求队列 / 并发锁 / 取消信号 / 客户端断开检测逻辑扩展 |
@@ -46,7 +46,7 @@
 | `dashboard.html` | +105 / −1 | 控制台界面新增"长消息分片"设置区与多账号实例面板 |
 | `dashboard.js` | +93 / −2 | 实例状态 15 秒轮询、`/api/instances` 调用、超长提示词（`toolong`）前端提示、按模型/账号清理记录 |
 | `browser_config.json` | +32 / −3 | 新增 `DEFAULT_SITE` 与 `INSTANCES` 多账号定义（名称、CDP 端口、`user_data_dir`）。**2026-11-05**：`user_data_dir` 改为项目内相对路径 `chrome_profiles\accN`（旧绝对路径指向已不存在的目录，导致 Chrome 静默新建未登录空 profile）；新增 `PROXY_SERVER`，供服务以 SYSTEM 身份启动 Chrome 时显式走代理 |
-| `start.bat` | +8 / −0 | 启动前创建 `uploads` 目录、输出 `UPLOAD_DIR` 提示、清理旧 `server.log`；**2026-11-05** 增加 `del /q /f "uploads\prompt_*.txt"`，启动时清掉上一轮超长提示词的落盘文件 |
+| `start.bat` | +14 / −0 | 启动前创建 `uploads` 目录、输出 `UPLOAD_DIR` 提示、清理旧 `server.log`；**2026-11-05** 增加 `del /q /f "uploads\prompt_*.txt"` 清掉上一轮落盘提示词；创建 `log/{app,error,supervisor,archive}` 分类目录，清理目标改为 `log\app\server.log`（并顺手删除根目录遗留的旧 `server.log`） |
 
 ## 4. 本次修改新增的文件（原项目中不存在）
 
@@ -59,7 +59,9 @@
 - `_verify_upload_fill.py` — 真实登录 profile 上的上传/填充链路验证脚本（独立端口，不动生产实例）
 - `tests/` — `test_api_ide.py`、`test_chunked_send.py`、`test_dead_recovery.py`、`test_fast_ai_pre.py`、`test_fill_submitted.py`、`test_msg_condense.py`、`test_tool_relay.py` 等测试
 - `session_bindings.json`、`credit_state.json` — 运行时状态文件
-- `.gitignore` — 忽略规则
+- `.gitignore` — 忽略规则：上游基线快照 `universalweb-api-main/`、Chrome profile
+  （`chrome_profiles/`、`chrome_profile/`）、`uploads/`（落盘提示词含用户原文）、
+  `log/`（分类日志目录）以及根目录散落的 `*.log` / `*.log.corrupt`
 
 以上文件均为本次修改的成果，同样以 AGPL-3.0 授权。
 

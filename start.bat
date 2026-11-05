@@ -15,7 +15,13 @@ del /q /f "uploads\prompt_*.txt" >nul 2>&1
 echo     UPLOAD_DIR   : uploads  (超长提示词落盘为 prompt_*.txt，启动时清空)
 set "PROJECT_DIR=%cd%"
 
-del server.log
+REM 日志分类目录：app=运行日志 error=错误与崩溃 supervisor=进程管理器捕获 archive=历史
+REM log/ 整体不入库，main.py 会自建，但 nssm 在进程启动前就要打开 supervisor 下的文件
+for %%d in (app error supervisor archive) do if not exist "log\%%d" mkdir "log\%%d" >nul 2>&1
+
+REM 清掉上一轮的运行日志；server.log 已从根目录迁到 log\app\，旧文件顺手删除
+del /q /f "log\app\server.log" >nul 2>&1
+del /q /f "server.log" >nul 2>&1
 
 echo.
 echo ========================================

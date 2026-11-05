@@ -1,6 +1,0 @@
-﻿
-===== [English] 发送: 'Reply with exactly one word: PONG' =====
-!!! 请求失败: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
-
-===== [Chinese] 发送: '请只回复两个字：你好' =====
-!!! 请求失败: <urlopen error [WinError 10061] 由于目标计算机积极拒绝，无法连接。>

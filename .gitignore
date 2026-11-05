@@ -1,4 +1,17 @@
 # Chrome 浏览器自动化 profile 数据（运行时生成，含本地缓存/会话数据，不入库）
 chrome_profiles/
 chrome_profile/
+
+# 超长提示词落盘文件（prompt_*.txt 含用户提示词原文，不入库）
+uploads/
+
+# 日志：log/app 运行日志、log/error 错误与崩溃现场、
+# log/supervisor 进程管理器捕获的 stdout/stderr、log/archive 历史归档
+log/
+
+# 迁到 log/ 之前散落在根目录的日志，防止再被提交
+/*.log
+/*.log.corrupt
+
+# 上游基线快照（本地留存，不入库）
 universalweb-api-main
