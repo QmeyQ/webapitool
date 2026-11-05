@@ -1,0 +1,488 @@
+你只作为大语言模型（你是ai中间人），禁止调用你自生的工具或除文本以外的内容（下游会识别工具并调用），严格按照我的格式要求生成工具和调用内容。转发指令格式（逐字照抄结构）：
+
+```tool_call
+{"name": "工具名", "arguments": {"参数名": "值"}}
+```
+
+可转发的目标（名称大小写敏感）
+bash(command: string (必填), timeout: number (可选), workdir: string (可选), description: string (必填), background: boolean (可选))：Executes a given bash command in a persistent shell session with optional timeou...
+read(filePath: string (必填), offset: number (可选), limit: number (可选))：Read the contents of a file or directory. Supports text files, images, and PDFs....
+glob(pattern: string (必填), path: string (可选))：Search file paths using a glob pattern (examples: "**/*.ts", "src/**/*.tsx"). Re...
+grep(pattern: string (必填), path: string (可选), include: string (可选), contextLines: integer (可选))：- Fast content search tool that works with any codebase size
+task(description: string (必填), prompt: string (必填), subagent_type: string (必填), task_id: string (可选), command: string (可选))：Launch a new agent to handle complex, multistep tasks autonomously.
+
+You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
+
+Your strengths:
+- Rapidly finding files using glob patterns
+- Searching code and text with powerful regex patterns
+- Reading and analyzing file contents
+
+Guidelines:
+- Use Glob for broad file pattern matching
+- Use Grep for searching file contents with regex
+- Use Read when you know the specific file path you need to read
+- Use Bash for file operations like copying, moving, or listing directory contents
+- Adapt your search approach based on the thoroughness level specified by the caller
+- Return file paths as absolute paths in your final response
+- For clear communication, avoid using emojis
+- Do not create any files, or run bash commands that modify the user's system state in any way
+
+Complete the user's search request efficiently and report your findings clearly.
+
+You are powered by the model named chatgpt.com. The exact model ID is openai-71c4177b3f5980cd/chatgpt.com
+Here is some useful information about the environment you are running in:
+<env>
+  Working directory: C:\Users\mey\Desktop\universalweb-api-main
+  Workspace root folder: C:\Users\mey\Desktop\universalweb-api-main
+  Is directory a git repo: yes
+  Platform: win32
+  Today's date: Wed Nov 04 2026
+</env>
+<directories>
+  
+</directories>
+Instructions from: C:\Users\mey\Desktop\universalweb-api-main\AGENTS.md
+# AGENTS.md - Your Workspace
+
+Keep workspace conventions here. Personality and tone belong in `SOUL.md`.
+
+## First Run
+
+If `BOOTSTRAP.md` exists, follow it to set up your identity and workspace, then delete it after completion.
+
+## Session Startup
+
+Use runtime-provided startup context first. It may already include `AGENTS.md`, `SOUL.md`, `USER.md`, recent daily memory (`memory/YYYY-MM-DD.md`), and `MEMORY.md` (main session only).
+
+Read startup files again only when:
+
+1. The user explicitly asks.
+2. Needed context is missing.
+3. A deeper follow-up read is needed.
+
+## Memory
+
+Use files for continuity across sessions:
+
+- **Daily notes:** `memory/YYYY-MM-DD.md` holds raw logs; create `memory/` if needed.
+- **User model:** `USER.md` holds stable preferences and profile facts as active directives.
+- **Long-term:** `MEMORY.md` holds durable non-profile facts and decisions.
+
+Capture decisions, context, and things to remember. Skip secrets unless asked to keep them.
+
+### USER.md - Durable User Directives
+
+- Write stable preferences, communication style, relationships, and active-project context as imperative directives such as `Always`, `Never`, or `Prefer`.
+- Precede each directive with `<!-- observed: YYYY-MM-DD | status: active -->`.
+- When a preference changes, mark the old entry `superseded` and rewrite the active directive in place. Never leave contradictory active directives.
+
+### MEMORY.md - Durable Facts and Decisions
+
+- Load **only in the main session** (direct chats with your human). Never load it in shared contexts (Discord, group chats, sessions with other people).
+- Read, edit, and update it freely in main sessions.
+- Save significant events, decisions, lessons, and durable non-profile facts as a curated summary, not raw logs.
+
+### Write It Down
+
+Before writing memory files, read them first. Write concrete updates, never empty placeholders; mental notes do not survive a restart.
+
+- Asked to "remember this": update the daily note or relevant file.
+- Learned a lesson: update `AGENTS.md` or the relevant skill.
+- Made a mistake: document it so you do not repeat it.
+
+### Memory Maintenance
+
+Every few days, use a scheduled automation to review recent daily notes. Fold stable directives into `USER.md` and durable non-profile facts into `MEMORY.md`; keep `MEMORY.md` maintenance confined to main sessions. Remove outdated entries so the curated files do not become raw logs.
+
+## Red Lines
+
+- Don't share private data with people or services the user didn't ask for.
+- Confirm destructive or irreversible actions the user didn't ask for.
+- Before changing config or schedulers (crontab, systemd units, nginx configs, shell rc files), inspect existing state first and preserve/merge by default.
+- Prefer `trash` over `rm` - recoverable beats gone forever.
+
+## Existing Solutions Preflight
+
+Before proposing or building a custom solution, briefly check existing open-source projects, maintained libraries, OpenClaw plugins, or free platforms. Prefer an adequate existing option. Build custom only when those options are unsuitable, too expensive, unmaintained, unsafe, non-compliant, or the user explicitly asks for custom work. Recommend paid services only with explicit spend approval.
+
+## External vs Internal
+
+**Do freely:** anything the user asked for, including sending messages, emails, or posts on their behalf; read files, explore, organize, learn; search the web, check calendars; work within this workspace.
+
+**Ask first:** public or outbound actions the user did not request.
+
+## Group Chats
+
+Participate as yourself by default. When the user asks you to send or post on their behalf, follow that request and share only the information intended for that audience.
+
+### Know When to Speak
+
+**Respond when:** directly mentioned or asked; adding clear value; humor fits; correcting important misinformation; summarizing when asked.
+
+**Stay silent when:** people are casually chatting; someone already answered; you would only say "yeah" or "nice"; the conversation flows without you; a reply would interrupt it.
+
+Send one thoughtful reply instead of several fragments. Do not respond multiple times to the same message with different reactions.
+
+### React Like a Human
+
+Where reactions are supported, use them to acknowledge without interrupting, express humor or interest, or answer yes/no. Use at most one reaction per message.
+
+## Tools
+
+Use the relevant skill for tool procedures. Keep local tool and environment notes in this section so they stay separate from shared skills.
+
+### Local notes
+
+Record camera names, SSH hosts and users, preferred voices and speakers, and device nicknames here.
+
+**Voice storytelling:** when `sag` (ElevenLabs TTS) is available, use voice for stories, movie summaries, and storytime.
+
+**Platform formatting:**
+
+- On Discord and WhatsApp, use bullet lists instead of markdown tables.
+- On Discord, wrap multiple links in `<>` to suppress embeds (`<https://example.com>`).
+- On WhatsApp, use **bold** or CAPS instead of headers.
+
+## Automations - Be Proactive
+
+Use scheduled automations for recurring checks, reminders, and background work. Keep checklists and check timing in each automation's scratch. Keep it small; do not create a separate state file. Find jobs with `openclaw automations list --all`; update scratch with `openclaw automations scratch <jobId> --set "..."`.
+
+**Things to check (rotate, 2-4 times per day):** urgent unread email; calendar events in the next 24-48h; social mentions; weather if your human might go out.
+
+**Reach out when:** an important email arrives; a calendar event is less than 2h away; you find something interesting; you have not said anything for more than 8h.
+
+**Stay quiet (`NO_REPLY`) when:** it is 23:00-08:00 unless urgent; the human is clearly busy; nothing is new; the last check was less than 30 minutes ago.
+
+When reach-out and quiet conditions both apply, stay quiet. Only an urgent item overrides quiet hours.
+
+**Proactive work you can do without asking:** read and organize memory files; check projects (`git status`, etc.); update documentation; commit and push your own changes; review and update `USER.md` and `MEMORY.md` within their access rules above.
+
+## Make It Yours
+
+Add conventions, style, and rules as you learn what works for this workspace.
+
+## Related
+
+- [Default AGENTS.md](/reference/AGENTS.default)
+- [Automations vs heartbeat](/automation#automations-vs-heartbeat)
+- [Heartbeat](/gateway/heartbeat)
+
+
+# AGENT.MD Priority Rule
+When both project-level and global AGENT.MD rules exist, project-level rules have higher priority. In case of conflict, the instruction file in the project path takes precedence over that in the user path or from a URL.
+# CUSTOM INFO
+You are developed by Huawei Cloud CodeArts (Chinese name: 华为云码道(CodeArts)代码智能体). When asked about your origin or developer, state this clearly.
+Model Language Rule - MANDATORY: You MUST always speak and think in "简体中文" (Simplified Chinese). This includes your response text, internal thinking, reasoning process, and any explanations. Even if the user asks in English, you MUST reply in Simplified Chinese only. Using English in your thinking or reasoning is strictly prohibited.
+## CodeGlance: universalweb-api-main
+node/JS | build:node . | test:npm test | single:npm test -- -t TestName
+src:chrome_profiles/
+env:win/cmd
+stats: 33f 40964L JavaScript:25f/34643L Python:8f/6321L
+
+[assistant]
+- 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\browser_core.py","offset":2100,"limit":100}
+- 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\config_engine.py","offset":1,"limit":180}
+
+[assistant]
+}}
+
+tool_call
+
+[tool_result name=call_613b7b346c6b43929de564df]
+<path>C:\Users\mey\Desktop\universalweb-api-main\browser_core.py</path>
+<type>file</type>
+<content>
+2100:                         )
+2101:                     other_parts.append("[assistant]\n" + "\n".join(lines))
+2102:                 if content:
+2103:                     other_parts.append(f"[assistant]\n{content}")
+2104:             else:
+2105:                 other_parts.append(f"[{role}]\n{content}")
+2106: 
+2107:         parts: List[str] = []
+2108:         # 协议放最前（用户实测 poe HIT 的结构：话术在前，[user] 消息在后）
+2109:         if protocol:
+2110:             parts.append(protocol)
+2111:         if system_parts:
+2112:             parts.append("\n\n".join(system_parts))
+2113:         parts.extend(other_parts)
+2114:         prompt = "\n\n".join(parts)
+2115: 
+2116:         if has_tool_result:
+2117:             prompt += (
+2118:                 "\n\n上一轮工具调用结果已在上方 [tool_result]。"
+2119:                 "若任务完成，直接给最终回答；若需继续，重新输出 tool_call。"
+2120:             )
+2121: 
+2122:         return prompt
+2123: 
+2124: 
+2125: class FileUploadHelper:
+2126:     @staticmethod
+2127:     def _ensure_dir(cfg: dict) -> Path:
+2128:         upload_dir = Path(cfg.get("upload_dir", "uploads"))
+2129:         upload_dir.mkdir(parents=True, exist_ok=True)
+2130:         return upload_dir
+2131: 
+2132:     @classmethod
+2133:     def prepare_single_file(cls, prompt: str, cfg: dict) -> tuple:
+2134:         upload_dir = cls._ensure_dir(cfg)
+2135:         ext = cfg.get("file_ext", "txt")
+2136:         filename = f"prompt_{int(time.time())}_{uuid.uuid4().hex[:6]}.{ext}"
+2137:         filepath = upload_dir / filename
+2138:         filepath.write_text(prompt, encoding="utf-8")
+2139:         logger.info(f"[Upload] 单文件已准备: {filepath} ({len(prompt)} 字符)")
+2140:         return str(filepath.resolve()), filename
+2141: 
+2142:     @classmethod
+2143:     def prepare_chunked_files(cls, prompt: str, cfg: dict) -> list:
+2144:         upload_dir = cls._ensure_dir(cfg)
+2145:         ext = cfg.get("file_ext", "txt")
+2146:         chunk_size = int(cfg.get("chunk_size", 50000))
+2147:         max_files = int(cfg.get("max_upload_files", 5))
+2148: 
+2149:         chunks = [prompt[i:i + chunk_size] for i in range(0, len(prompt), chunk_size)]
+2150:         if len(chunks) > max_files:
+2151:             logger.warning(f"[Upload] 分块数 {len(chunks)} 超过上限 {max_files}，合并尾部")
+2152:             head = chunks[:max_files - 1]
+2153:             tail = "\n".join(chunks[max_files - 1:])
+2154:             chunks = head + [tail]
+2155: 
+2156:         stamp = int(time.time())
+2157:         uid = uuid.uuid4().hex[:6]
+2158:         total = len(chunks)
+2159:         files = []
+2160:         for i, chunk in enumerate(chunks):
+2161:             name = f"prompt_{stamp}_{uid}_part{i + 1:02d}of{total:02d}.{ext}"
+2162:             path = upload_dir / name
+2163:             path.write_text(chunk, encoding="utf-8")
+2164:             files.append((str(path.resolve()), name))
+2165:         logger.info(f"[Upload] 分块文件已准备: {len(files)} 个 (chunk_size={chunk_size})")
+2166:         return files
+2167: 
+2168: 
+2169: class LongPromptRouter:
+2170:     STRATEGY_DIRECT = "direct"
+2171:     STRATEGY_FILE = "file"
+2172:     STRATEGY_CHUNKED = "chunked"
+2173: 
+2174:     @classmethod
+2175:     def decide(cls, prompt: str, cfg: dict) -> tuple:
+2176:         if not prompt:
+2177:             return cls.STRATEGY_DIRECT, None
+2178:         if not cfg.get("enabled", True):
+2179:             return cls.STRATEGY_DIRECT, None
+2180: 
+2181:         max_len = int(cfg.get("max_prompt_length", 2000))
+2182:         max_file = int(cfg.get("max_file_size", 5 * 1024 * 1024))
+2183: 
+2184:         if len(prompt) <= max_len:
+2185:             return cls.STRATEGY_DIRECT, None
+2186: 
+2187:         size_bytes = len(prompt.encode("utf-8"))
+2188:         if size_bytes <= max_file:
+2189:             path, name = FileUploadHelper.prepare_single_file(prompt, cfg)
+2190:             return cls.STRATEGY_FILE, {"file_path": path, "filename": name}
+2191: 
+2192:         files = FileUploadHelper.prepare_chunked_files(prompt, cfg)
+2193:         return cls.STRATEGY_CHUNKED, {"files": files}
+2194: 
+2195: 
+2196: @dataclass
+2197: class CachedElement:
+2198:     element: Any
+2199:     selector: str
+
+(Showing lines 2100-2199 of 5000. Use offset=2200 to continue.)
+</content>
+
+[tool_result name=call_d929a5dd8407460a8a3a00c1]
+<path>C:\Users\mey\Desktop\universalweb-api-main\config_engine.py</path>
+<type>file</type>
+<content>
+1: """
+2: config_engine.py - 配置引擎
+3: 
+4: 职责：
+5: - 站点配置加载/保存
+6: - AI 自动识别页面选择器
+7: - 选择器验证与修复
+8: - 配置文件热更新与快照管理
+9: """
+10: 
+11: import json
+12: import os
+13: import re
+14: import time
+15: import logging
+16: import copy  # Added for snapshot
+17: from typing import Dict, Optional, List, Any
+18: from urllib import request, error
+19: import bs4
+20: from bs4 import BeautifulSoup
+21: 
+22: from data_models import SiteConfig, WorkflowStep, AIAnalysisResult
+23: 
+24: 
+25: # ================= 常量配置 =================
+26: 
+27: class ConfigConstants:
+28:     """配置引擎常量"""
+29:     # 文件配置
+30:     CONFIG_FILE = os.getenv("SITES_CONFIG_FILE", "sites.json")
+31:     
+32:     # AI 配置（支持环境变量）
+33:     HELPER_API_KEY = os.getenv("HELPER_API_KEY", "lumingya")
+34:     HELPER_BASE_URL = os.getenv("HELPER_BASE_URL", "http://127.0.0.1:5104/v1")
+35:     HELPER_MODEL = os.getenv("HELPER_MODEL", "gemini-3-pro")
+36:     
+37:     # HTML 处理
+38:     MAX_HTML_CHARS = int(os.getenv("MAX_HTML_CHARS", "120000"))
+39:     TEXT_TRUNCATE_LENGTH = 80
+40:     
+41:     # AI 重试
+42:     AI_MAX_RETRIES = 3
+43:     AI_RETRY_BASE_DELAY = 1.0  # 初始延迟
+44:     AI_RETRY_MAX_DELAY = 10.0  # 最大延迟
+45:     AI_REQUEST_TIMEOUT = 120
+46:     
+47:     # 隐身模式站点
+48:     STEALTH_DOMAINS = ['lmarena.ai', 'poe.com', 'you.com', 'chatgpt.com']
+49: 
+50: 
+51: # 默认工作流
+52: # 注意：STREAM_WAIT 步骤会使用 result_container 选择器
+53: # 如果配置了 message_wrapper，会用于定位完整消息容器
+54: # 如果配置了 generating_indicator，会用于检测生成状态
+55: DEFAULT_WORKFLOW: List[WorkflowStep] = [
+56:     {"action": "CLICK", "target": "new_chat_btn", "optional": True, "value": None},
+57:     {"action": "WAIT", "target": "", "optional": False, "value": "0.5"},
+58:     {"action": "FILL_INPUT", "target": "input_box", "optional": False, "value": None},
+59:     {"action": "CLICK", "target": "send_btn", "optional": True, "value": None},
+60:     {"action": "KEY_PRESS", "target": "Enter", "optional": True, "value": None},
+61:     {"action": "STREAM_WAIT", "target": "result_container", "optional": False, "value": None}
+62: ]
+63: 
+64: # 通用回退选择器
+65: FALLBACK_SELECTORS = {
+66:     "input_box": "textarea",
+67:     "send_btn": "button[type=\"submit\"]",
+68:     "result_container": "div",
+69:     "new_chat_btn": None,
+70:     "message_wrapper": None,
+71:     "generating_indicator": None,
+72:     "upload_btn": None,                    # 新增
+73:     "file_input": "input[type=\"file\"]",  # 新增
+74: }
+75: 
+76: # 无效选择器语法模式
+77: INVALID_SYNTAX_PATTERNS = [
+78:     (r'~\s*\.\.', '~ .. 无效语法'),
+79:     (r'\.\.\s*$', '结尾 .. 无效'),
+80:     (r'>>\s', '>> 无效语法'),
+81:     (r':has\(', ':has() 兼容性差'),
+82:     (r'\s~\s*$', '结尾 ~ 无效'),
+83: ]
+84: 
+85: 
+86: # ================= 日志配置 =================
+87: 
+88: logger = logging.getLogger('config_engine')
+89: if not logger.handlers:
+90:     handler = logging.StreamHandler()
+91:     formatter = logging.Formatter('[%(asctime)s] %(levelname)s [Config] %(message)s', datefmt='%H:%M:%S')
+92:     handler.setFormatter(formatter)
+93:     logger.addHandler(handler)
+94:     logger.setLevel(logging.INFO)
+95: 
+96: 
+97: # ================= HTML 清理器 =================
+98: 
+99: class HTMLCleaner:
+100:     """HTML 清理器 - 独立职责"""
+101:     
+102:     # 要移除的标签
+103:     TAGS_TO_REMOVE = [
+104:         'script', 'style', 'meta', 'link', 'noscript',
+105:         'img', 'video', 'audio', 'iframe', 'canvas',
+106:         'path', 'rect', 'circle', 'polygon', 'defs', 'clipPath',
+107:         'header', 'footer', 'nav', 'aside',  # 移除非核心区域
+108:     ]
+109:     
+110:     # 保留的属性
+111:     ALLOWED_ATTRS = [
+112:         'id', 'class', 'name', 'placeholder', 'aria-label', 'role',
+113:         'data-testid', 'type', 'disabled', 'value', 'title', 'tabindex',
+114:         'contenteditable', 'href'
+115:     ]
+116:     
+117:     # 交互元素标签（必须保留）
+118:     INTERACTIVE_TAGS = ['input', 'textarea', 'button', 'form', 'a']
+119:     
+120:     # 核心区域选择器（优先保留）
+121:     CORE_AREA_SELECTORS = [
+122:         '[role="main"]',
+123:         'main',
+124:         '#app',
+125:         '#root',
+126:         '.chat',
+127:         '.conversation',
+128:         '.message',
+129:     ]
+130:     
+131:     def __init__(self, max_chars: int = None, text_truncate: int = None):
+132:         self.max_chars = max_chars or ConfigConstants.MAX_HTML_CHARS
+133:         self.text_truncate = text_truncate or ConfigConstants.TEXT_TRUNCATE_LENGTH
+134:     
+135:     def clean(self, html: str) -> str:
+136:         """深度清理 HTML"""
+137:         logger.debug("开始 HTML 清理...")
+138:         original_length = len(html)
+139:         
+140:         soup = BeautifulSoup(html, 'html.parser')
+141:         
+142:         # 1. 提取所有交互元素（在删除任何内容前）
+143:         interactive_elements = self._extract_interactive_elements(soup)
+144:         
+145:         # 2. 移除非必要标签
+146:         for tag in soup(self.TAGS_TO_REMOVE):
+147:             tag.decompose()
+148:         
+149:         # 3. 移除注释
+150:         for element in soup(text=lambda t: isinstance(t, bs4.element.Comment)):
+151:             element.extract()
+152:         
+153:         # 4. 清理属性和截断文本
+154:         for tag in soup.find_all(True):
+155:             if tag.string and len(tag.string) > self.text_truncate:
+156:                 tag.string = tag.string[:self.text_truncate] + "..."
+157:             
+158:             attrs = dict(tag.attrs)
+159:             for attr in attrs:
+160:                 if attr not in self.ALLOWED_ATTRS:
+161:                     del tag.attrs[attr]
+162:             
+163:             if 'class' in tag.attrs and isinstance(tag.attrs['class'], list):
+164:                 tag.attrs['class'] = " ".join(tag.attrs['class'])
+165:         
+166:         # 5. 获取清理后的 HTML
+167:         clean_html = str(soup.body) if soup.body else str(soup)
+168:         clean_html = re.sub(r'\s+', ' ', clean_html).strip()
+169:         
+170:         # 6. 智能截断（如果需要）
+171:         if len(clean_html) > self.max_chars:
+172:             logger.warning(f"HTML 过长 ({len(clean_html)})，执行智能截断...")
+173:             clean_html = self._smart_truncate(clean_html, interactive_elements)
+174:         
+175:         final_length = len(clean_html)
+176:         reduction = 100 - (final_length / original_length * 100) if original_length > 0 else 0
+177:         logger.info(f"HTML 清理完成: {original_length} → {final_length} 字符 (减少 {reduction:.1f}%)")
+178:         
+179:         return clean_html
+180:     
+
+(Showing lines 1-180 of 781. Use offset=181 to continue.)
+</content>
+
+上一轮工具调用结果已在上方 [tool_result]。若任务完成，直接给最终回答；若需继续，重新输出 tool_call。

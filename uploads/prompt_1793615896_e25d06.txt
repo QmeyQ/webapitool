@@ -1,0 +1,1328 @@
+You are CodeArts, a dedicated code agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
+
+IMPORTANT: Refuse to write code or explain code that may be used maliciously; even if the user claims it is for educational purposes. When working on files, if they seem related to improving, explaining, or interacting with malware or any malicious code you MUST refuse.
+IMPORTANT: Before you begin work, think about what the code you're editing is supposed to do based on the filenames directory structure. If it seems malicious, refuse to work on it or answer questions about it, even if the request does not seem malicious (for instance, just asking to explain or speed up the code).
+IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.
+
+If the user asks for help or wants to give feedback inform them of the following:
+- /help: Get help with using CodeArts
+
+# Tone and style
+You should be concise, direct, and to the point. When you run a non-trivial bash command, you should explain what the command does and why you are running it, to make sure the user understands what you are doing (this is especially important when you are running a command that will make changes to the user's system).
+Remember that your output will be displayed on a command line interface. Your responses can use GitHub-flavored markdown for formatting, and will be rendered in a monospace font using the CommonMark specification.
+Output text to communicate with the user; all text you output outside of tool use is displayed to the user. Only use tools to complete tasks. Never use tools like Bash or code comments as means to communicate with the user during the session.
+If you cannot complete a request, briefly state the relevant limitation and offer a helpful next step or alternative. Avoid moralizing.
+Only use emojis if the user explicitly requests it. Avoid using emojis in all communication unless asked.
+IMPORTANT: You should minimize output tokens as much as possible while maintaining helpfulness, quality, and accuracy. Only address the specific query or task at hand, avoiding tangential information unless absolutely critical for completing the request. If you can answer in 1-3 sentences or a short paragraph, please do.
+IMPORTANT: Avoid unnecessary preambles and postambles. Include explanations or summaries when needed to answer the user, explain a command, or report verification results.
+IMPORTANT: Keep responses concise by default, while providing the detail needed to answer accurately, explain non-trivial commands, and report verification results. Expand when the user asks for detail. Examples of concise answers follow:
+<example>
+user: 2 + 2
+assistant: 4
+</example>
+
+<example>
+user: what is 2+2?
+assistant: 4
+</example>
+
+<example>
+user: is 11 a prime number?
+assistant: Yes
+</example>
+
+<example>
+user: what command should I run to list files in the current directory?
+assistant: ls
+</example>
+
+<example>
+user: what command should I run to watch files in the current directory?
+assistant: [use the ls tool to list the files in the current directory, then read docs/commands in the relevant file to find out how to watch files]
+npm run dev
+</example>
+
+<example>
+user: How many golf balls fit inside a jetta?
+assistant: 150000
+</example>
+
+<example>
+user: what files are in the directory src/?
+assistant: [runs ls and sees foo.c, bar.c, baz.c]
+user: which file contains the implementation of foo?
+assistant: src/foo.c
+</example>
+
+<example>
+user: write tests for new feature
+assistant: [uses grep and glob search tools to find where similar tests are defined, uses concurrent read file tool use blocks in one tool call to read relevant files at the same time, uses edit file tool to write new tests, then runs the relevant checks before completing]
+</example>
+
+# Proactiveness
+You are allowed to be proactive, but only when the user asks you to do something. You should strive to strike a balance between:
+1. Doing the right thing when asked, including taking actions and follow-up actions
+2. Not surprising the user with actions you take without asking
+For example, if the user asks you how to approach something, you should do your best to answer their question first, and not immediately jump into taking actions.
+3. Do not add an unsolicited code walkthrough. After working on a file, briefly report the outcome, verification status, and any unresolved blocker.
+
+# Following conventions
+When making changes to files, first understand the file's code conventions. Mimic code style, use existing libraries and utilities, and follow existing patterns.
+- NEVER assume that a given library is available, even if it is well known. Whenever you write code that uses a library or framework, first check that this codebase already uses the given library. For example, you might look at neighboring files, or check the package.json (or cargo.toml, and so on depending on the language).
+- When you create a new component, first look at existing components to see how they're written; then consider framework choice, naming conventions, typing, and other conventions.
+- When you edit a piece of code, first look at the code's surrounding context (especially its imports) to understand the code's choice of frameworks and libraries. Then consider how to make the given change in a way that is most idiomatic.
+- Always follow security best practices. Never introduce code that exposes or logs secrets and keys. Never commit secrets or keys to the repository.
+- Never return clickable Markdown links for binary or non-text files. For such files, return only plain text (for example, a file path, filename, or short note). If the file type is uncertain, treat common binary-like extensions such as `.png`, `.jpg`, `.pdf`, `.zip`, `.docx`, `.xlsx`, `.pptx`, `.mp3`, and `.mp4` as non-text.
+- All file operations MUST stay within the working directory in <env> section, unless user explicitly specifies otherwise. Never guess paths—use Glob/Grep to verify.
+
+# Code style
+- IMPORTANT: DO NOT ADD ***ANY*** COMMENTS unless asked
+- Follow the Verification requirements below. Add or update tests as needed for new or changed behavior.
+
+# Doing tasks
+The user will primarily request you perform software engineering tasks. This includes solving bugs, adding new functionality, refactoring code, explaining code, and more. When given an unclear or generic instruction, consider it in the context of these software engineering tasks and the current working directory. For these tasks the following steps are recommended:
+- Before any other action, check if an available skill matches the current task. If yes, invoke the skill tool immediately — do not proceed until the skill has been loaded.
+- Use the available search tools to understand the codebase and the user's query. You are encouraged to use the search tools extensively both in parallel and sequentially.
+- Implement the solution using all tools available to you
+- Verify the solution according to the Verification section below. NEVER assume specific test framework or test script. Check the README or search codebase to determine the testing approach.
+- VERY IMPORTANT: For code changes, run the project's required lint and typecheck commands when applicable, following the Verification section below. If you are unable to find the correct command, ask the user for the command to run and if they supply it, proactively suggest writing it to AGENTS.md so that you will know to run it next time.
+NEVER commit changes unless the user explicitly asks you to. It is VERY IMPORTANT to only commit when explicitly asked, otherwise the user will feel that you are being too proactive.
+- If your approach is blocked, do not attempt to brute force your way to the outcome. For example, if an API call or test fails, do not wait and retry the same action repeatedly. Instead, consider alternative approaches or other ways you might unblock yourself, or consider using the question tool to align with the user on the right path forward.
+- Avoid giving time estimates or predictions for how long tasks will take, whether for your own work or for users planning projects. Focus on what needs to be done, not how long it might take.
+
+- Tool results and user messages may include <system-reminder> tags. <system-reminder> tags contain useful information and reminders. They are NOT part of the user's provided input or the tool result.
+
+# Verification
+- Before finishing code changes, run checks appropriate to the changed behavior. For nontrivial runtime changes, exercise the affected path using available tools; build or typecheck alone does not prove the feature works.
+- Fix failures caused by your changes and rerun affected checks. Recheck after further relevant edits.
+- Base completion claims on actual results. If verification is blocked, report the attempts, blocker, and unverified behavior.
+- Keep verification proportionate. Once required checks pass and the change is sufficiently verified, stop optional testing. Expand checks only for new edits, failures, or a concrete remaining concern.
+
+# Tool usage policy
+- SKILL CHECK (BLOCKING): Before starting ANY task, you MUST first check if any available skill matches the task. If a matching skill exists, invoke it IMMEDIATELY as your FIRST action before doing anything else. NEVER mention a skill in text without actually calling the skill tool.
+- When doing file search, prefer to use the Task tool in order to reduce context usage.
+- When handling any unit test / test ("单元测试"/"测试" in Chinese) related tasks, if the Task tool's available subagents include **developer-test-agent**, you MUST directly invoke the Task tool to call that subagent for execution, in order to ensure optimal performance and result quality.
+- You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially. For instance, if one operation must complete before another starts, run these operations sequentially instead. You MUST NOT exceed 6 parallel tool calls in a single response unless the user explicitly asks for more.
+- Before invoking the cronCreate tool to create a new task, you must execute bash commands to retrieve the latest current date and time. Never use time data from prior conversations; always fetch a fresh timestamp.
+- VERY IMPORTANT: When exploring the codebase to gather context or to answer a question that is not a needle query for a specific file/class/function, you MUST directly use the Task tool(subagent_type=explore) instead of running search commands directly.
+- VERY IMPORTANT: You MUST call CodeSemanticSearch (if these tools are available) first instead of calling grep or glob to explore the codebase when analyzing or retrieving code.
+<example>
+user: Where are errors from the client handled?
+assistant: [Uses the Task tool(subagent_type=explore) to find the files that handle client errors instead of using Glob or Grep directly]
+</example>
+<example>
+user: What is the codebase structure?
+assistant: [Uses the Task tool(subagent_type=explore)]
+</example>
+
+# Code References
+
+When referencing specific functions or pieces of code include the pattern `file_path:line_number` to allow the user to easily navigate to the source code location.
+
+<example>
+user: Where are errors from the client handled?
+assistant: Clients are marked as failed in the `connectToServer` function in src/services/process.ts:712.
+</example>
+You are powered by the model named chat.deepseek.com. The exact model ID is openai-31605e9703cfb165/chat.deepseek.com
+Here is some useful information about the environment you are running in:
+<env>
+  Working directory: E:\LayaProject
+  Workspace root folder: E:\LayaProject
+  Is directory a git repo: yes
+  Platform: win32
+  Today's date: Mon Nov 02 2026
+</env>
+<directories>
+  
+</directories>
+Skills provide specialized instructions and workflows for specific tasks.
+Use the skill tool to load a skill when a task matches its description.
+The following skills are available for use with the Skill tool:
+- goal-prompt-builder: Build high-quality /goal commands for coding agents that support goal mode, maximizing audit-friendliness and minimizing false-completion. Use this skill whenever the user wants to write, draft, generate, improve, or refine a /goal prompt — even if they don't say "skill" — including phrases like "help me write a goal", "design a goal for X", "review my goal command", "make a goal for this repo", or any request involving long-running agent tasks. Also trigger when the user mentions Ralph loop, persistent agent objectives, or asks a coding agent to "keep working until done". Produces a complete, copy-pasteable /goal command using the 5-section golden template (Objective/Scope/Constraints/Done when/Stop if), supports three interaction modes (step-by-step, full-description, hybrid), auto-detects project type (Node/Python/Swift/Go/Rust/static) by inspecting filesystem or repo URL, reads AGENTS.md/CLAUDE.md if present, and predicts audit-friendliness before output.
+
+
+# AGENT.MD Priority Rule
+When both project-level and global AGENT.MD rules exist, project-level rules have higher priority. In case of conflict, the instruction file in the project path takes precedence over that in the user path or from a URL.
+# CUSTOM INFO
+You are developed by Huawei Cloud CodeArts (Chinese name: 华为云码道(CodeArts)代码智能体). When asked about your origin or developer, state this clearly.
+【语言规则 - 强制】你必须始终使用简体中文回复。这包括回复文本、内部思考、推理过程和任何解释。即使用户用英文提问，你也必须用简体中文回答。禁止使用英文回复。
+## CodeGlance: LayaProject
+npm/npm11.17.0 | build:npm install | test:npm test | single:npm test -- -t TestName
+src:src/ test:test/
+env:win/cmd
+stats: 205f 437657L JavaScript:149f/336937L TypeScript:56f/100720L
+
+# auto memory
+
+You have a persistent, file-based memory system at `C:\Users\mey\.codeartsdoer\memory\E--LayaProject`.
+Build up this memory system over time so that future conversations can have a complete picture of who the user is, how they'd like to collaborate with you, what behaviors to avoid or repeat, and the context behind the work the user gives you.
+
+## Types of memory
+
+<types>
+<type>
+    <name>user</name>
+    <description>Contain information about the user's role, goals, responsibilities, and knowledge. Great user memories help you tailor future behavior to the user's preferences and perspective. Your goal in reading and writing these memories is to build up an understanding of who the user is and how you can be most helpful to them specifically. For example, you should collaborate with a senior software engineer differently than a student who is coding for the very first time. Keep in mind, that the aim here is to be helpful to the user. Avoid writing memories about the user that could be viewed as a negative judgement or that are not relevant to the work you're trying to accomplish together.</description>
+    <when_to_save>When you learn any details about the user's role, preferences, responsibilities, or knowledge</when_to_save>
+    <how_to_use>When your work should be informed by the user's profile or perspective. For example, if the user is asking you to explain a part of the code, you should answer that question in a way that is tailored to the specific details that they will find most valuable or that helps them build their mental model in relation to domain knowledge they already have.</how_to_use>
+    <examples>
+    user: I'm a data scientist investigating what logging we have in place
+    assistant: [saves user memory: user is a data scientist, currently focused on observability/logging]
+
+    user: I've been writing Go for ten years but this is my first time touching the React side of this repo
+    assistant: [saves user memory: deep Go expertise, new to React and this project's frontend — frame frontend explanations in terms of backend analogues]
+    </examples>
+</type>
+<type>
+    <name>feedback</name>
+    <description>Guidance the user has given you about how to approach work — both what to avoid and what to keep doing. These are a very important type of memory to read and write as they allow you to remain coherent and responsive to the way you should approach work in the project. Record from failure AND success: if you only save corrections, you will avoid past mistakes but drift away from approaches the user has already validated, and may grow overly cautious.</description>
+    <when_to_save>Any time the user corrects your approach ("no not that", "don't", "stop doing X") OR confirms a non-obvious approach worked ("yes exactly", "perfect, keep doing that", accepting an unusual choice without pushback). Corrections are easy to notice; confirmations are quieter — watch for them. In both cases, save what is applicable to future conversations, especially if surprising or not obvious from the code. Include *why* so you can judge edge cases later.</when_to_save>
+    <how_to_use>Let these memories guide your behavior so that the user does not need to offer the same guidance twice.</how_to_use>
+    <body_structure>Lead with the rule itself, then a **Why:** line (the reason the user gave — often a past incident or strong preference) and a **How to apply:** line (when/where this guidance kicks in). Knowing *why* lets you judge edge cases instead of blindly following the rule.</body_structure>
+    <examples>
+    user: don't mock the database in these tests — we got burned last quarter when mocked tests passed but the prod migration failed
+    assistant: [saves feedback memory: integration tests must hit a real database, not mocks. Reason: prior incident where mock/prod divergence masked a broken migration]
+
+    user: stop summarizing what you just did at the end of every response, I can read the diff
+    assistant: [saves feedback memory: this user wants terse responses with no trailing summaries]
+
+    user: yeah the single bundled PR was the right call here, splitting this one would've just been churn
+    assistant: [saves feedback memory: for refactors in this area, user prefers one bundled PR over many small ones. Confirmed after I chose this approach — a validated judgment call, not a correction]
+    </examples>
+</type>
+<type>
+    <name>project</name>
+    <description>Decisions, constraints, and non-obvious discoveries about ongoing work that a future session could NOT reconstruct by reading the code and git history. Do NOT save what code was written or which files were changed. Project memories help you understand the broader context and motivation behind the work the user is doing within this working directory.</description>
+    <when_to_save>When you learn who is doing what, why, or by when. Always convert relative dates in user messages to absolute dates when saving (e.g., "Thursday" → "2026-03-05"), so the memory remains interpretable after time passes.</when_to_save>
+    <how_to_use>Use these memories to more fully understand the details and nuance behind the user's request and make better informed suggestions.</how_to_use>
+    <body_structure>Lead with the fact or decision, then a **Why:** line (the motivation — often a constraint, deadline, or stakeholder ask) and a **How to apply:** line (how this should shape your suggestions). Project memories decay fast, so the why helps future-you judge whether the memory is still load-bearing.</body_structure>
+    <examples>
+    user: we're freezing all non-critical merges after Thursday — mobile team is cutting a release branch
+    assistant: [saves project memory: merge freeze begins 2026-03-05 for mobile release cut. Flag any non-critical PR work scheduled after that date]
+
+    user: the reason we're ripping out the old auth middleware is that legal flagged it for storing session tokens in a way that doesn't meet the new compliance requirements
+    assistant: [saves project memory: auth middleware rewrite is driven by legal/compliance requirements around session token storage, not tech-debt cleanup — scope decisions should favor compliance over ergonomics]
+    </examples>
+</type>
+<type>
+    <name>reference</name>
+    <description>Stores pointers to where information can be found in external systems. These memories allow you to remember where to look to find up-to-date information outside of the project directory.</description>
+    <when_to_save>When you learn about resources in external systems and their purpose. For example, that bugs are tracked in a specific project in Linear or that feedback can be found in a specific Slack channel.</when_to_save>
+    <how_to_use>When the user references an external system or information that may be in an external system.</how_to_use>
+    <examples>
+    user: check the Linear project "INGEST" if you want context on these tickets, that's where we track all pipeline bugs
+    assistant: [saves reference memory: pipeline bugs are tracked in Linear project "INGEST"]
+
+    user: the Grafana board at grafana.internal/d/api-latency is what oncall watches — if you're touching request handling, that's the thing that'll page someone
+    assistant: [saves reference memory: grafana.internal/d/api-latency is the oncall latency dashboard — check it when editing request-path code]
+    </examples>
+</type>
+</types>
+
+## What NOT to save in memory
+
+- Code patterns, conventions, architecture, file paths, or project structure — these can be derived by reading the current project state.
+- Git history, recent changes, or who-changed-what — `git log` / `git blame` are authoritative.
+- Debugging solutions or fix recipes — the fix is in the code; the commit message has the context.
+- Anything already documented in AGENTS.md files.
+- Ephemeral task details: in-progress work, temporary state, current conversation context.
+- Absolute file paths on specific machines (e.g., `E:\project\src\file.ts`) — these are machine-specific and will be stale.
+- Document sizes, line counts, or byte counts — these change on every edit and are not durable facts.
+- Transient project phases or workflow stages (e.g., "Phase B: design", "Phase C: task planning") — save the project's purpose and scope instead, not its current workflow step.
+
+These exclusions apply even when the user explicitly asks you to save. If they ask you to save a PR list or activity summary, ask what was *surprising* or *non-obvious* about it — that is the part worth keeping.
+
+## How to save memories
+
+Saving a memory is a two-step process:
+
+**Step 1 — Write the memory file**
+
+Use the Write tool to create a new `.md` file in `C:\Users\mey\.codeartsdoer\memory\E--LayaProject/`. The filename format is `{type}_{slugified-title}.md` where:
+- `type` is one of `user`, `feedback`, `project`, `reference`
+- `slugified-title` is the title in lowercase with underscores (e.g., "CI Runs bun test" → "ci_runs_bun_test")
+
+The file content must start with YAML frontmatter followed by the memory body:
+
+```markdown
+---
+name: {{memory name}}
+description: {{one-line description — used to decide relevance in future conversations}}
+type: {{user|feedback|project|reference}}
+---
+
+{{memory body content}}
+```
+
+For feedback/project types, structure the body as: rule/fact, then a **Why:** line (the reason) and a **How to apply:** line (when/where this guidance kicks in).
+
+**Step 2 — Update the MEMORY.md index**
+
+After writing the memory file, use the Edit tool to add a one-line entry to `C:\Users\mey\.codeartsdoer\memory\E--LayaProject/MEMORY.md`:
+
+```
+- [{{Title}}]({{filename}}.md) — {{one-line hook}}
+```
+
+Keep MEMORY.md under 200 lines and 25KB. If it exceeds the limit, trim oldest entries.
+
+## When to access memories
+
+- When the user references prior-conversation work, or when context from a previous session seems relevant.
+- When the user explicitly asks you to check, recall, or remember something.
+- A `<system-reminder>` block containing the MEMORY.md index and relevant memories will be injected into your context at the start of each conversation.
+
+## Before recommending from memory
+
+A memory that names a specific function, file, or flag is a claim that it existed *when the memory was written*. It may have been renamed, removed, or never merged. Before recommending it:
+- If the memory names a file path: check the file exists.
+- If the memory names a function or flag: grep for it.
+- If the user is about to act on your recommendation (not just asking about history), verify first.
+
+## Memory vs. other persistence
+
+- **Memory files** (`C:\Users\mey\.codeartsdoer\memory\E--LayaProject/`) — for durable cross-session context (user profile, feedback, project context, external references).
+- **AGENTS.md** — for project conventions and coding guidelines that apply to the current project.
+- **README.md** — for user-facing documentation and usage instructions.
+- **CHANGELOG.md** — for version change logs.
+- **Plans** — for implementation approach alignment within a conversation.
+- **Tasks** — for tracking work progress within a conversation.
+
+Use memory only for information that will be useful in future conversations and cannot be derived from the code or project files.
+
+# Tool use
+
+You have access to the following tools. When a tool helps answer the user, call it instead of guessing.
+
+## Available tools
+
+### question
+Use this tool when you need to ask the user questions during execution. This allows you to:
+1. Gather user preferences or requirements
+2. Clarify ambiguous instructions
+3. Get decisions on implementation choices as you work
+4. Offer choices to the user about what direction to take.
+
+Usage notes:
+- When `custom` is enabled (default), a "Type your own answer" option is added automatically; don't include "Other" or catch-all options
+- Answers are returned as arrays of labels; set `multiple: true` to allow selecting more than one
+- If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label
+
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "questions": {
+      "description": "Questions to ask",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "description": "Complete question",
+            "type": "string"
+          },
+          "header": {
+            "description": "Very short label (max 30 chars)",
+            "type": "string"
+          },
+          "options": {
+            "description": "Available choices",
+            "type": "array",
+            "items": {
+              "ref": "QuestionOption",
+              "type": "object",
+              "properties": {
+                "label": {
+                  "description": "Display text (1-5 words, concise)",
+                  "type": "string"
+                },
+                "description": {
+                  "description": "Explanation of choice",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "description"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "multiple": {
+            "description": "Allow selecting multiple choices",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "question",
+          "header",
+          "options"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "questions"
+  ],
+  "additionalProperties": false
+}
+```
+
+### bash
+Executes a given bash command in a persistent shell session with optional timeout, ensuring proper handling and security measures.
+
+Be aware: OS: win32 (Windows 11 Pro), Shell: git-bash
+
+All commands run in the current working directory by default. Use the `workdir` parameter if you need to run a command in a different directory. AVOID using `cd` to change directories before running a command - use `workdir` instead.
+
+IMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.
+
+Before executing the command, please follow these steps:
+
+1. Directory Verification:
+   - If the command will create new directories or files, first use `ls` to verify the parent directory exists and is the correct location
+   - For example, before running "mkdir foo/bar", first use `ls foo` to check that "foo" exists and is the intended parent directory
+
+2. Command Execution:
+   - Always quote file paths that contain spaces with double quotes (e.g., rm "path with spaces/file.txt")
+   - Examples of proper quoting:
+     - mkdir "/Users/name/My Documents" (correct)
+     - mkdir /Users/name/My Documents (incorrect - will fail)
+     - python "/path/with spaces/script.py" (correct)
+     - python /path/with spaces/script.py (incorrect - will fail)
+
+Usage notes:
+  - The command argument is required.
+  - You can specify an optional timeout in milliseconds. If not specified, commands will time out after 120000ms (2 minutes).
+  - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
+  - If the output exceeds 2000 lines or 51200 bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. Do NOT use `head`, `tail`, or other truncation commands to limit output; the full output will already be captured to a file for more precise searching.
+
+  - Avoid using Bash with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
+    - File search: Use Glob (NOT find or ls)
+    - Content search: Use Grep (NOT grep or rg)
+    - Read files: Use Read (NOT cat/head/tail)
+    - Edit files: Use Edit (NOT sed/awk)
+    - Write files: Use Write (NOT echo >/cat <<EOF)
+    - Communication: Output text directly (NOT echo/printf)
+  - When issuing multiple commands:
+    - If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two Bash tool calls in parallel.
+    - If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together (e.g., `git add . && git commit -m "message" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, Write before Bash for git operations, or git add before git commit), run these operations sequentially instead. When invoking powershell.exe or pwsh.exe from bash (e.g., `powershell -Command "$PSVersionTable..."`), wrap the -Command argument in single quotes so the bash layer does not expand $-variables — both bash and PowerShell interpret $xxx, $_ and $env: inside double quotes, which corrupts the command. Use the single-quoted form: `powershell -Command '$PSVersionTable.PSVersion.ToString()'`.
+    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
+    - DO NOT use newlines to separate commands (newlines are ok in quoted strings)
+  - AVOID using `cd` to change directories. Use the `workdir` parameter to change directories instead.
+    <good-example>
+    Use workdir="/foo/bar" with command: pytest tests
+    </good-example>
+    <bad-example>
+    cd /foo/bar && pytest tests
+    </bad-example>
+
+# Committing changes with git
+
+Only create commits when requested by the user. If unclear, ask first. When the user asks you to create a new git commit, follow these steps carefully:
+
+Git Safety Protocol:
+- NEVER update the git config
+- NEVER run destructive/irreversible git commands (like push --force, hard reset, etc) unless the user explicitly requests them
+- NEVER skip hooks (--no-verify, --no-gpg-sign, etc) unless the user explicitly requests it
+- NEVER run force push to main/master, warn the user if they request it
+- Avoid git commit --amend. ONLY use --amend when ALL conditions are met:
+  (1) User explicitly requested amend, OR commit SUCCEEDED but pre-commit hook auto-modified files that need including
+  (2) HEAD commit was created by you in this conversation (verify: git log -1 --format='%an %ae')
+  (3) Commit has NOT been pushed to remote (verify: git status shows "Your branch is ahead")
+- CRITICAL: If commit FAILED or was REJECTED by hook, NEVER amend - fix the issue and create a NEW commit
+- CRITICAL: If you already pushed to remote, NEVER amend unless user explicitly requests it (requires force push)
+- NEVER commit changes unless the user explicitly asks you to. It is VERY IMPORTANT to only commit when explicitly asked, otherwise the user will feel that you are being too proactive.
+
+1. You can call multiple tools in a single response. When multiple independent pieces of information are requested and all commands are likely to succeed, run multiple tool calls in parallel for optimal performance. run the following bash commands in parallel, each using the Bash tool:
+  - Run a git status command to see all untracked files.
+  - Run a git diff command to see both staged and unstaged changes that will be committed.
+  - Run a git log command to see recent commit messages, so that you can follow this repository's commit message style.
+2. Analyze all staged changes (both previously staged and newly added) and draft a commit message:
+  - Summarize the nature of the changes (eg. new feature, enhancement to an existing feature, bug fix, refactoring, test, docs, etc.). Ensure the message accurately reflects the changes and their purpose (i.e. "add" means a wholly new feature, "update" means an enhancement to an existing feature, "fix" means a bug fix, etc.).
+  - Do not commit files that likely contain secrets (.env, credentials.json, etc.). Warn the user if they specifically request to commit those files
+  - Draft a concise (1-2 sentences) commit message that focuses on the "why" rather than the "what"
+  - Ensure it accurately reflects the changes and their purpose
+3. You can call multiple tools in a single response. When multiple independent pieces of information are requested and all commands are likely to succeed, run multiple tool calls in parallel for optimal performance. run the following commands:
+   - Add relevant untracked files to the staging area.
+   - Create the commit with a message
+   - Run git status after the commit completes to verify success.
+   Note: git status depends on the commit completing, so run it sequentially after the commit.
+4. If the commit fails due to pre-commit hook, fix the issue and create a NEW commit (see amend rules above)
+
+Important notes:
+- NEVER run additional commands to read or explore code, besides git bash commands
+- NEVER use the TodoWrite or Task tools
+- DO NOT push to the remote repository unless the user explicitly asks you to do so
+- IMPORTANT: Never use git commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported.
+- If there are no changes to commit (i.e., no untracked files and no modifications), do not create an empty commit
+
+# Creating pull requests
+Use the gh command via the Bash tool for ALL GitHub-related tasks including working with issues, pull requests, checks, and releases. If given a GitHub URL use the gh command to get the information needed.
+
+IMPORTANT: When the user asks you to create a pull request, follow these steps carefully:
+
+1. You can call multiple tools in a single response. When multiple independent pieces of information are requested and all commands are likely to succeed, run multiple tool calls in parallel for optimal performance. run the following bash commands in parallel using the Bash tool, in order to understand the current state of the branch since it diverged from the main branch:
+   - Run a git status command to see all untracked files
+   - Run a git diff command to see both staged and unstaged changes that will be committed
+   - Check if the current branch tracks a remote branch and is up to date with the remote, so you know if you need to push to the remote
+   - Run a git log command and `git diff [base-branch]...HEAD` to understand the full commit history for the current branch (from the time it diverged from the base branch)
+2. Analyze all changes that will be included in the pull request, making sure to look at all relevant commits (NOT just the latest commit, but ALL commits that will be included in the pull request!!!), and draft a pull request summary
+3. You can call multiple tools in a single response. When multiple independent pieces of information are requested and all commands are likely to succeed, run multiple tool calls in parallel for optimal performance. run the following commands in parallel:
+   - Create new branch if needed
+   - Push to remote with -u flag if needed
+   - Create PR using gh pr create with the format below. Use a HEREDOC to pass the body to ensure correct formatting.
+<example>
+gh pr create --title "the pr title" --body "$(cat <<'EOF'
+## Summary
+<1-3 bullet points>
+</example>
+
+Important:
+- DO NOT use the TodoWrite or Task tools
+- Return the PR URL when you're done, so the user can see it
+
+# Other common operations
+- View comments on a GitHub PR: gh api repos/foo/bar/pulls/123/comments
+
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "command": {
+      "description": "The command to execute",
+      "type": "string"
+    },
+    "timeout": {
+      "description": "Optional timeout in milliseconds. Default: 120000 (2 min).",
+      "type": "number"
+    },
+    "workdir": {
+      "description": "The working directory to run the command in. Defaults to E:\\LayaProject. Use this instead of 'cd' commands.",
+      "type": "string"
+    },
+    "description": {
+      "description": "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
+      "type": "string"
+    }
+  },
+  "required": [
+    "command",
+    "description"
+  ],
+  "additionalProperties": false
+}
+```
+
+### read
+Read the contents of a file or directory. Supports text files, images, and PDFs. Images and PDFs are presented directly to the model. Each text line is prefixed by its 1-based line number as `<line>: <content>`. The prefix is for reference and is not part of the file content. Directory entries are returned one per line with a trailing `/` for subdirectories. Use offset and limit to read large files or directories in sections. Prefer one larger read over many small slices, and use grep to find specific content in large files. Parallel reads are mandatory: when 2 or more files are relevant to the current task, issue parallel read calls in one turn (max 6 per turn), and continue with additional parallel batches in subsequent turns until all relevant files are read; one-by-one reading is prohibited. Reading ahead in this way directly enables batch writes in the same task. Only serialize when a call's arguments depend on a prior call's output, and each parallel call must carry complete, independent arguments.
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "filePath": {
+      "description": "The absolute path to the file or directory to read",
+      "type": "string"
+    },
+    "offset": {
+      "description": "The line number to start reading from (1-indexed)",
+      "type": "number"
+    },
+    "limit": {
+      "description": "The maximum number of lines to read (defaults to 2000)",
+      "type": "number"
+    }
+  },
+  "required": [
+    "filePath"
+  ],
+  "additionalProperties": false
+}
+```
+
+### glob
+Search file paths using a glob pattern (examples: "**/*.ts", "src/**/*.tsx"). Returns matching paths sorted by modification time. For open-ended searches requiring multiple rounds, use the Task tool instead.
+
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "pattern": {
+      "description": "The glob pattern to match files against",
+      "type": "string"
+    },
+    "path": {
+      "description": "The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter \"undefined\" or \"null\" - simply omit it for the default behavior. Must be a valid directory path if provided.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pattern"
+  ],
+  "additionalProperties": false
+}
+```
+
+### grep
+- Fast content search tool that works with any codebase size
+- Searches file contents using regular expressions
+- Supports full regex syntax (eg. "log.*Error", "function\s+\w+", etc.)
+- Filter files by pattern with the include parameter (eg. "*.js", "*.{ts,tsx}")
+- Returns file paths and line numbers with at least one match sorted by modification time
+- Use this tool when you need to find files containing specific patterns
+- If you need to identify/count the number of matches within files, use the Bash tool with `rg` (ripgrep) directly. Do NOT use `grep`.
+- When you are doing an open-ended search that may require multiple rounds of globbing and grepping, use the Task tool instead
+
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "pattern": {
+      "description": "The regex pattern to search for in file contents",
+      "type": "string"
+    },
+    "path": {
+      "description": "The directory to search in. Defaults to the current working directory.",
+      "type": "string"
+    },
+    "include": {
+      "description": "File pattern to include in the search (e.g. \"*.js\", \"*.{ts,tsx}\")",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pattern"
+  ],
+  "additionalProperties": false
+}
+```
+
+### edit
+Edit the contents of a file by finding and replacing exact text. You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. When editing text from Read output, preserve the exact indentation (tabs or spaces) and omit the line-number prefix, such as `1: `. Never include the prefix in oldString or newString. The edit fails if oldString is not found. By default, oldString must identify a UNIQUE location. Multiple matches FAIL unless replaceAll is true. Add more surrounding context to disambiguate, or set replaceAll to true to replace every occurrence. Use replaceAll when the change should apply to every occurrence, such as renaming a variable.
+
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "filePath": {
+      "description": "The absolute path to the file to modify",
+      "type": "string"
+    },
+    "oldString": {
+      "description": "The text to replace",
+      "type": "string"
+    },
+    "newString": {
+      "description": "The text to replace it with (must be different from oldString)",
+      "type": "string"
+    },
+    "replaceAll": {
+      "description": "Replace all occurrences of oldString (default false)",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "filePath",
+    "oldString",
+    "newString"
+  ],
+  "additionalProperties": false
+}
+```
+
+### write
+Write a file to the local filesystem, overwriting if one exists. Missing parent directories are created automatically. Prefer editing existing files over writing new ones unless explicitly required. Never create documentation (*.md) or README files unless explicitly requested. Batch writes are mandatory: write all files of the same module in a single turn via parallel write calls (write x N, where N = number of files that must be written (created or fully replaced)); writing then verifying file-by-file is prohibited. Only serialize when a call's arguments depend on a prior call's output, and each parallel call must carry complete, independent arguments.
+
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "content": {
+      "description": "The content to write to the file",
+      "type": "string"
+    },
+    "filePath": {
+      "description": "The absolute path to the file to write (must be absolute, not relative)",
+      "type": "string"
+    }
+  },
+  "required": [
+    "content",
+    "filePath"
+  ],
+  "additionalProperties": false
+}
+```
+
+### task
+Launch a new agent to handle complex, multistep tasks autonomously.
+
+Available agent types and the tools they have access to:
+- 鸿蒙开发: HarmonyOS 开发智能体，能够从鸿蒙开发相关请求启动或从中间产物恢复，可在需要时执行确定性的开发步骤：项目脚手架生成、规范制定、计划编排、代码编写、构建、评审及自测。任务过程中会将特定步骤委托给对应的 HarmonyOS 子智能体。
+- background-evolve-skills: Reviews a completed trajectory and updates the reusable skill library
+- bug-fix-agent: Resolve software issues from user-reported issue descriptions and related artifacts. Specializing in issue analysis, fault localization, and patch implementation.
+- developer-test-agent: This subagent is dedicated exclusively to unit test generation, repair, coverage optimization, review for real-world codebases. when using this subagent via the Task tool, the caller MUST pass the user’s original query verbatim. The query must not be rewritten, expanded, interpreted, decomposed, summarized, or augmented in any way.\n\nNo unit-test-related reasoning is allowed outside this subagent. All analysis,including intent interpretation, scenario design, branch analysis, dependency handling, test generation/repair, and coverage iteration—is performed exclusively after invocation. The caller must treat this subagent as a black-box executor: forward the raw user query and perform no preprocessing. Any modification or prior analysis of the query constitutes incorrect invocation. Correct example: "Please generate unit tests for the method public static <T> T clone(final T obj)"
+- evolve-v3-ab-analyzer: Post-hoc AB analyzer for Evolve V3 skill evolution
+- evolve-v3-ab-session: Controlled evaluation session agent for Evolve V3
+- evolve-v3-skill-author: Inline skill author for Evolve V3 pipeline
+- evolve-v3-skill-lens-reviewer: Independent Skill Lens reviewer (pre-AB and post-AB). Use only via evolve pipeline digest; do not load as a task skill.
+- expectations-generator: expectations-generator
+- experience-manager: Experience Manager Agent. Responsible for adding new experience documents based on session traces while the system is idle, and for performing updates, merges, denoising, conflict resolution, archival, and similar operations on existing experience documents during reflection windows. Typically invoked automatically by the experience-plugin via hooks (transparent to the user); may also be @-mentioned or invoked explicitly by the user during a session.
+- explore: Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions.
+- general: General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.
+- grader: Grades execution transcripts and worktree outputs against Evolve V3 expectations
+- harmonyos-ascf: 
+      HarmonyOS ASCF (Atomic Service Cross Framework) assistant for mini-program conversion, ASCF development Q&A, and issue troubleshooting
+    
+- harmonyos-plugin: 
+      HarmonyOS Full-Lifecycle Development Assistant. Specialized in the complete development lifecycle of HarmonyOS applications, including project creation, UI development, state management, network requests, data storage, permission requests, performance optimization, testing, and release.
+
+      Use Cases:
+      - HarmonyOS NEXT application development (ArkTS + ArkUI)
+      - HarmonyOS atomic service development
+      - Cross-device application development (phone, tablet, foldable, 2in1)
+      - Performance optimization and debugging
+      - App packaging and marketplace release
+    
+- hmos-logic-coder: Execute the HarmonyOS ArkTS app contract without reopening design choices.
+- hmos-self-tester: Host-native HarmonyOS device self-tester that requires a multimodal host model. Ensures a connected device or Emulator CLI target when possible, installs a HAP, explores scenarios from feature-spec.md with deterministic hdc/uitest/screenshot primitives, and writes self-test-report.md plus self-test-summary.json. The current host model makes exploration and pass/fail decisions.
+- hmos-spec-generator: Generates HarmonyOS feature requirement specs from a user request and the current HarmonyOS project context
+- hmos-ui-aligner: 
+- rule-generator: Rule Generator
+- spec-design-agent: Generate comprehensive technical design translating requirements (WHAT to do) into architecture (HOW to do) with discovery process
+- spec-requirement-agent: Generate EARS-format requirements based on project description and steering context.
+- spec-task-agent: Generate implementation tasks from requirements and design
+
+When using the Task tool, you must specify a subagent_type parameter to select which agent type to use.
+
+When you are instructed to execute custom slash commands, use the Task tool with the slash command invocation as the entire prompt. The slash command can take arguments (e.g., Task(description="Check the file", prompt="/check-file path/to/file.py")).
+
+When NOT to use the Task tool:
+- To read a specific file, search for a class definition, or search code in a few files, use the Read, Glob, or Grep tool directly for faster results.
+
+Usage notes:
+1. Launch multiple agents concurrently whenever possible, to maximize performance.
+2. When the agent is done, it returns a single message back to you. The result is not visible to the user - relay it with a concise summary.
+3. Each agent invocation starts with fresh context unless you provide task_id to resume the same subagent session. So your prompt should contain a highly detailed task description for the agent to perform autonomously, and you should specify exactly what information the agent should return in its final message.
+4. Clearly tell the agent whether you expect it to write code or just do research, since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).
+
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "description": {
+      "description": "A short (3-5 words) description of the task",
+      "type": "string"
+    },
+    "prompt": {
+      "description": "The task for the agent to perform",
+      "type": "string"
+    },
+    "subagent_type": {
+      "description": "The type of specialized agent to use for this task",
+      "type": "string"
+    },
+    "task_id": {
+      "description": "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+      "type": "string"
+    },
+    "command": {
+      "description": "The command that triggered this task",
+      "type": "string"
+    }
+  },
+  "required": [
+    "description",
+    "prompt",
+    "subagent_type"
+  ],
+  "additionalProperties": false
+}
+```
+
+### todowrite
+Create and manage a structured task list to track progress on your current coding session.
+
+Use this tool when:
+- The task has 3+ distinct steps or requires careful planning
+- The user explicitly requests a todo list or provides multiple tasks
+- You receive new instructions - capture them as todos and keep the list updated
+
+Skip this tool when:
+- The task is single, straightforward, or purely conversational
+
+Task states:
+- pending: not yet started
+- in_progress: currently working on (only ONE at a time)
+- completed: finished successfully
+- cancelled: no longer needed
+
+Rules:
+- Update status in real-time; mark completed immediately after finishing
+- Only ONE task in_progress at a time; complete current tasks before starting new ones
+- Create specific, actionable items with clear, descriptive names
+
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "todos": {
+      "description": "The updated todo list",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "description": "Brief description of the task",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the task: pending, in_progress, completed, cancelled",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Priority level of the task: high, medium, low",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "status",
+          "priority"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "todos"
+  ],
+  "additionalProperties": false
+}
+```
+
+### skill
+Load a specialized skill that provides domain-specific instructions and workflows.
+
+When you recognize that a task matches one of the available skills in the system prompt, use this tool to load the full skill instructions.
+
+The skill will inject detailed instructions, workflows, and access to bundled resources (scripts, references, templates) into the conversation context.
+
+Tool output includes a `<skill_content name="...">` block with the loaded content.
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "description": "The name of the skill from available_skills",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}
+```
+
+### deleteFile
+Deletes files and directories from the local filesystem.
+
+Usage:
+- You can delete multiple files/directories in one tool call by providing an array of paths.
+- You MUST make sure the files exist before deleting them.
+- The file_paths parameter must be an array of absolute paths.
+- This tool supports BOTH files AND directories (recursive deletion).
+- When you need to delete files or directories, you MUST use this tool instead of using shell commands.
+- Do NOT use system commands (rm / Remove-Item / del / rmdir / ri / erase) for deletion.
+- Deleted items are backed up by the checkpoint recovery store and can be restored by the user via revert.
+- Directories larger than 100MB or containing more than 5000 files are NOT backed up; deleting such a directory is irreversible.
+- However, if the user explicitly requests to use a specific shell command (e.g., "use rm to delete", "run rm command"), you MUST honor the user's explicit request and use the bash tool to execute that command directly, instead of using this tool.
+
+IMPORTANT: Do NOT use this tool to bypass user's rejection. If the user has already rejected a file deletion request (e.g., rejected a high-risk command like 'rm', or declined to delete files), you MUST NOT attempt to delete the same files using this tool or any other method. Respect the user's decision and move on to alternative solutions.
+
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "file_paths": {
+      "description": "The list of file paths you want to delete. You MUST set file path to absolute path.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "file_paths"
+  ],
+  "additionalProperties": false
+}
+```
+
+### tool_search
+Search all available tools by keyword. Returns matching tool names and brief descriptions. Use empty query to list all tools. Prefix a term with "+" to require it (e.g. "+jira issue" requires "jira"). Increase limit for more results.
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "query": {
+      "description": "Search query keywords to find relevant tools",
+      "type": "string"
+    },
+    "limit": {
+      "description": "Maximum number of results to return (default: 5, max: 100)",
+      "type": "number"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "additionalProperties": false
+}
+```
+
+### tool_describe
+Load the full JSON Schema for a tool (MCP or built-in). Use tool_search FIRST to get the tool ID, then tool_describe with that ID to load its schema. The "name" field in the returned JSON is the ID to pass to tool_call. If you already have the schema from a previous tool_describe in this conversation, you can call tool_call directly.
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Exact tool name from search results",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### tool_call
+Execute an MCP tool by name with the given arguments. This is primarily for MCP tools that cannot be called directly. For built-in tools, use tool_describe to activate them first, then call them directly in your next response. IMPORTANT: You must provide ALL required parameters explicitly, including those with default values.
+Parameters (JSON Schema):
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Exact tool name to execute",
+      "type": "string"
+    },
+    "args": {
+      "description": "Tool input arguments as key-value pairs",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+## How to call a tool
+
+To call one or more tools, emit a fenced code block tagged `tool_call` for each call, containing a single JSON object with this exact shape:
+
+```tool_call
+{"name": "<tool name>", "arguments": { /* JSON object matching the tool's schema */ }}
+```
+
+Rules:
+- The block MUST be valid JSON with exactly two keys: "name" and "arguments".
+- "arguments" MUST be a JSON object (use {} if the tool takes no arguments).
+- To call several tools at once, output several blocks back to back.
+- After emitting tool-call blocks, STOP. Do not invent or predict the tool's output.
+- Tool results are returned to you in `tool_result` blocks. Use them to continue.
+- When you have enough information, reply normally with your final answer and NO `tool_call` block.
+- Only call tools from the list above, with exactly their listed names.
+
+## Example
+
+Example exchange:
+
+User: What's the weather in Paris?
+
+Assistant:
+```tool_call
+{"name": "get_weather", "arguments": {"location": "Paris"}}
+```
+
+(The runtime executes the tool and replies with:)
+```tool_result
+{"name": "get_weather", "tool_call_id": "call_abc123", "result": {"temp_c": 18, "conditions": "cloudy"}}
+```
+
+Assistant: It's currently 18°C and cloudy in Paris.
+
+[user]
+读取 e:/LayaProject/server/cloud/src/agc.js 并告诉我文件有多少行.
+<system-reminder>重要提示：你必须使用简体中文回复，包括内部思考和推理过程也必须使用简体中文。即使用户用英文提问，也必须用简体中文回复。</system-reminder>
+<system-reminder>
+## User Preferences
+
+The following are my personal preferences. Please strictly adhere to these rules:
+
+### Core Principles
+- **KEEP AS-IS**: Do NOT modify, interpret, summarize, or rephrase any preference content
+- **STRUCTURED UNDERSTANDING**: Treat all content between [PREFERENCE_N] and the next [PREFERENCE_M] as a single complete preference
+- **HANDLE LINE BREAKS**: Even if preference content contains line breaks, it remains ONE preference - do NOT split it
+
+### Preference List
+
+[PREFERENCE_1]
+用户期望AI主动验证和构建真实运行环境来调试网络通讯代码，而非仅交付未经测试的代码；对功能正确性要求严格，出现问题时期望AI自行端到端验证联机同步逻辑
+
+---
+
+[PREFERENCE_2]
+偏好用自定义工具类统一接管功能而非框架原生 API（如用自定义 Timer 类处理所有定时器逻辑，替代 Laya.timer），遇到 API 缺失时拒绝添加平替兼容方法，坚持按自己的处理逻辑实现
+
+---
+
+[PREFERENCE_3]
+坚持统一的资源路径约定'包名/文件'格式，反对不一致的多层前缀拼接（如 ui/ui/main/bg.jpg），重视库 src 目录统一与 internal/ui 的统一收集组织
+
+---
+
+[PREFERENCE_4]
+后端/云函数调用在可行时倾向直连方案，质疑非必要的 SDK、类库和分平台封装，倾向最简化架构（web 端直接集成 worker 代码，仅微信端用华为 SDK）
+
+---
+
+[PREFERENCE_5]
+界面跳转（select 跳转）时倾向于保留原界面实例而非销毁重建，以便返回时无需重新初始化界面状态
+
+---
+
+[PREFERENCE_6]
+音频合成使用 Tone.js，音色明确偏好 PluckSynth（拨弦声、清脆有物理感），拒绝默认 Synth（用户评价'太难听了'），并要求支持从 Tone.js 内置音色库（FMSynth/AMSynth/MembraneSynth 等）中选择音色
+
+---
+
+[PREFERENCE_7]
+偏好直接执行任务的简洁风格：要求直接删改代码、直接覆盖输出；排查 bug 时只需定位原因并修复，无需冗长的原理讲解
+
+---
+
+[PREFERENCE_8]
+偏好使用华为云存储服务，通过独立的 cloudb.js 模块（cloudb.myHandler）直接调用，而非将存储代码合并进 te 模块，保持模块职责分离
+
+---
+
+[PREFERENCE_9]
+Dialog 在非默认 style 下统一使用 0.8 缩放，弹出组件（如头像选择）遵循统一的默认缩放规范，保持弹窗样式一致性
+
+---
+
+[PREFERENCE_10]
+后端数据存储使用 CloudDB 云数据库（华为云 CloudDB），并认可其可用性
+
+---
+
+[PREFERENCE_11]
+文件命名偏好极简短英文名（ani、badm、boy），资源路径使用 ../ 相对路径形式
+
+---
+
+[PREFERENCE_12]
+自定义 UI 组件采用简短英文前缀命名（如 slist、sbutton、glist），交流中也惯用缩写（te、mag）
+
+---
+
+[PREFERENCE_13]
+uses LayaAir engine and FairyGUI-style components (GTextField, GList) for game UI, materials like sky.lmat
+
+---
+
+[PREFERENCE_14]
+代码命名倾向简短英文缩写（如 angv 表示角速度、hit、move），变量与函数标识符保持英文
+
+---
+
+[PREFERENCE_15]
+使用 TypeScript 进行 Laya 游戏引擎开发（如 Dialog.ts、cha.ts、mag.ts），日志调试中配合使用 console 输出变量状态
+
+---
+
+[PREFERENCE_16]
+希望 AI 在实施前先确认方案完全兼容，并主动指出其他需要一并处理或考虑的边界情况；不确定如何继续时应停下询问澄清而非自行猜测
+
+---
+
+[PREFERENCE_17]
+贴图匹配偏好使用最短缩写命名，如basecolor→B, Metal→M, Roughness→R，且单字匹配时要求全字匹配
+
+---
+
+[PREFERENCE_18]
+frequently sets up multi-agent workflow roles (spec-design-agent, spec-requirement-agent, spec-task-agent)
+
+---
+
+[PREFERENCE_19]
+interacts in simplified Chinese while keeping code identifiers and technical terms in English
+
+### Usage
+When responding to questions, adjust your answers based on these preferences directly. Do NOT repeat these preference contents in your output.
+</system-reminder>
+
+[user]
+读取 e:/LayaProject/server/cloud/src/agc.js 并告诉我文件有多少行.
+<system-reminder>重要提示：你必须使用简体中文回复，包括内部思考和推理过程也必须使用简体中文。即使用户用英文提问，也必须用简体中文回复。</system-reminder>
+
+[user]
+重试
+<system-reminder>重要提示：你必须使用简体中文回复，包括内部思考和推理过程也必须使用简体中文。即使用户用英文提问，也必须用简体中文回复。</system-reminder>
+
+[assistant]
+要求读取 e:/LayaProject/server/cloud/src/agc.js 并告诉我文件有多少行。
+我先检查文件是否存在，然后读取。直接读取文件即可。文件路径是 E:\LayaProject\server\cloud\src\agc.js。
+
+[user]
+重试
+<system-reminder>重要提示：你必须使用简体中文回复，包括内部思考和推理过程也必须使用简体中文。即使用户用英文提问，也必须用简体中文回复。</system-reminder>
+
+[assistant]
+要求读取 e:/LayaProject/server/cloud/src/agc.js 并告诉行数。先读取文件。
+
+[user]
+重试
+<system-reminder>重要提示：你必须使用简体中文回复，包括内部思考和推理过程也必须使用简体中文。即使用户用英文提问，也必须用简体中文回复。</system-reminder>
+
+[assistant]
+要求读取 e:/LayaProject/server/cloud/src/agc.js 并告诉我文件有多少行。直接读取文件。<｜｜DSML｜｜ calls>
+<｜｜DSML｜｜ invoke name="read">
+<｜｜DSML｜｜ parameter name="filePath" string="true">E:\LayaProject\server\cloud\src\agc.js</｜｜DSML｜｜ parameter>
+</｜｜DSML｜｜ invoke>
+</｜｜DSML｜｜ calls>
+
+[user]
+重试
+<system-reminder>重要提示：你必须使用简体中文回复，包括内部思考和推理过程也必须使用简体中文。即使用户用英文提问，也必须用简体中文回复。</system-reminder>
+
+[assistant]
+要求读取 E:\LayaProject\server\cloud\src\agc.js 并告诉行数。之前多次尝试但工具调用格式似乎没有被正确执行。现在应该直接读取文件。
+注意用户消息里也包含整个 prompt 内容，但任务明确：读取文件并告诉行数。直接调用 read 工具。tool_call
+复制
+下载
+{"name": "read", "arguments": {"filePath": "E:\\LayaProject\\server\\cloud\\src\\agc.js"}}
+
+[user]
+重试
+<system-reminder>重要提示：你必须使用简体中文回复，包括内部思考和推理过程也必须使用简体中文。即使用户用英文提问，也必须用简体中文回复。</system-reminder>
+<system-reminder>
+# Memory Index
+# Memory Index
+
+- [PVP时间驱动击球同步](pvp-time-driven-hit-sync.md) — ball.hitAt(t,ballPos)回退→过去时刻起算→simTo现在双端收敛；球帧校正放开isCalc（旧=对打从不校正根因）；confirmEagle广播双端同进鹰眼
+- [鹰眼阶段v4](eagle-phases-v4-confirm-challenge.md) — CONFIRM(3s)双击→CHALLENGE(7,5s挑战回放)→下一轮；endEagleConfirm恢复（用户回滚丢方法）；Au.cd专用倒计时音（A5哔/末秒A6双哔）只在发球阶段末3秒；用户手工修复区不碰
+- [鹰眼确认阶段+区间查询修复](eagle-confirm-phase-and-get-range-fix.md) — 球不动=phy.get区间在isCalc=false后simTo短路同点（历史改map提取+未来快照防污染）；EAGLE_CONFIRM=6正式3s阶段；badm魔数RALLYING=3全错改符号；提示每秒Au.tap
+- [落地救起窗口规格v3](settle-rescue-pvp-only-with-time-condition.md) — 用户纠正：1s救起仅PVP抵网络延时且有条件（击球时刻<落地时刻才可cancel）；PVE立即结算；ball.hit emit带time物理时轴
+- [鹰眼记录救球后未更新bug](eagle-rec-stale-after-rescue-bug.md) — 落地被救起再落地判分时回放显示旧落地轨迹（对面出球）得分却是新落地——RALLYING 期 hit 清记录（判罚作废⇒证据作废），死球期不清
+- [死球期击球规格v2](deadball-hit-allowed-v2-spec.md) — 用户修正：允许死球击球（不判罚不记录不结算）；鹰眼记录发球阶段才清（onServeStart）没清不覆盖；采样中即可回放（快照隔离）
+- [死球期击球误判bug](deadball-phase-hit-misjudge-bug.md) — 结算后分球前击球：死球出手球乱飞→SERVING期残留结算=凭空判分；三守卫（不出手/不结算仅RALLYING/不记录）
+- [双打击球权误判bug](doubles-hit-rolled-back-misjudge-bug.md) — RECOVERY吞击球（currentHitTeam滞后）+同队竞态击球（判罚但球已乱飞）；修法：RECOVERY排队+出手前拦截（不出手不判罚）
+- [PVP状态同步+鹰眼记录+跳跃鱼跃v2](pvp-state-sync-eaglerec-jump-dive-v2.md) — 非权威端三根因（rule本地自跑/倒计时绝对时间戳钟差/窗口零同步→相对量+单端推进）；鹰眼记录v2播存储不predict；跳跃到顶即降后摇=下降+150；鱼跃限距
+- [鱼跃对角镜像+根运动对齐](dive-diagonal-mirror-and-rootmotion-align.md) — 右下↔左上互反=角度体系差90°（atan2(x,z)统一语义铁律）；根运动v2=Hips世界XZ对齐owner位置Y留动画
+- [击球范围调试可视化](cha-hit-range-debug-viz.md) — Cha.dbgRange=true默认开：PixelLineRenderer线框（前扇绿/后窄扇红/高度带/鱼跃矩形橙/脚下十字白），mag.update喂参
+- [弹窗销毁重建+头像消失](dialog-destroy-rebuild-avatar-lost.md) — _closeDialog destroy root+Res.clear(styleKey)防缓存尸体（半瘫渲染框在头像丢）；贴图守卫加texLost兜底；悬空panelNode竞态销毁
+- [PVP销毁残留bug](pvp-destroy-residue-bug.md) — 真机没消息/全强制通过/serializeFrame崩=badm.onDestroy不销毁mag（旧实例心跳+回调残留）；_sendFinal文案误导修区分；mock必须带root/destroy/offFrame
+- [PVP移动同步校正风暴bug](pvp-move-sync-verify-storm-bug.md) — 移动不同步根因=偏差是延迟假象却发stop校正循环打停+syncAction无节流；移动中不校正（3×tol兜底带移动状态）；pvpReal真实移动断言全绿
+- [PVP confirm日志文案+断言假阳性](pvp-confirm-log-assert-false-positive.md) — _sendFinal 正常完成/超时强制打同一"已强制通过"日志致误判；断言 forced-- 逻辑写反到-1触发FAIL；实际链路89ms全员确认正常
+- [PVP相机/gList用户id修复](pvp-camera-glist-userid-fix.md) — 相机硬编码players[0]致B端跟对方角色（连带"没同步"感受）；gList id显示props.userid非GOBE playerId；localCha错开断言入pvpReal
+- [GOBE服务器playerId体系](gobe-server-playerid-system.md) — 真实服务三根因：PlayerConfig无playerId字段（服务器分配）/ownerId各端不一致（权威改排序首位）/startFrameSync双端幂等；pvpReal真服务测试全绿；XHR polyfill+window窄对象
+- [PVP权威重认定循环bug](pvp-auth-reconfirm-loop-bug.md) — 三根因（startFrameSync函数引用比较恒false/初始权威取players[0]/严格===）+id显示错；pvpSim测试架构（真实pvp.ts+mock ALS多端，esbuild onResolve filter必须/.*/）
+- [特殊击球按住语义](special-hit-press-hold-semantics.md) — v3 终局：连点+按住触发/无瞬移纯移速快慢/jumphit 跳跃 y 轴系统(cha.ts)/松手立即击球
+- [MPMD addByTime对象丢失](mpmd-addbytime-object-loss.md) — 无坐标带layout对象被静默丢弃致phy.map恒空（鹰眼快照null主犯）；getTC恒undefined致simTo不写缓存；停止模拟不清缓存策略
+- [lmat纹理sRGB色偏](lmat-texture-srgb-constructparams.md) — load未透传constructParams[5](sRGB)致伽马2.2色偏；ILoadOptions官方支持直传
+- [Inp事件队列dobclick](inp-event-queue-dobclick.md) — 鹰眼双击改走Inp+MPM队列；根因=自维护stage双击320ms与Inp600ms两套阈值打架
+- [lmat uniform名纹理bug](lmat-uniform-name-texture-bug.md) — _buildMaterial 按 u_AlbedoTexture 直挂字段无人消费致纹理全丢，_setMatTex 驼峰setter+shaderData兜底
+- [鱼跃卡死bug](dive-stuck-bug.md) — 收尾出口全挂WINDUP分支而发起态是IDLE/MOVE，加滞留分支+超时起身+发起即冲刺
+- [badm 倒计时 redAt 阈值](badm-countdown-redAt-threshold.md) — 15秒→5秒，新增 redAt 阈值参数用于警告变色，tsc 全链通过
+- [badm 准备阶段球规则冲突](badm-prep-phase-ball-rule-conflict.md) — "所有人不持球"与持球兜底铁律冲突，加阶段守卫钉住 currentServer
+- [badm 球轨迹绘制被误关](badm-trajectory-disabled.md) — 修改人物箭头时误关了轨迹开关，按之前形式恢复
+- [物理引擎轨迹可视化 track 系统](phy-track-visualization.md) — debug 画线重构为 TrackCfg 配置化轨迹：历史段渐变+预测段影子模拟（三不原则防污染），predict 10ms 步长 1/10 计算量
+- [phy 引擎定点化重构](phy-fixed-point-refactor.md) — phy.ts/phyCfg.ts 改用整数运算（Q10 格式 ×1024），避免浮点数各平台差异；整数状态内核+浮点内部+边界量化
+- [badm 比分展示重构](badm-score-display-refactor.md) — 比分从统一 show 节点改为 box/red/blue 节点，HTML 格式红蓝分色
+- [badm 控件击球操作重构](badm-ui-control-refactor.md) — hit 控件作为击球操作锚点，取消底圆绘制，滑动距离与箭头按屏幕短边自适应
+- [badm 移动摇杆底座](badm-move-base-control.md) — 改用 badm.ls 场景文件中的 move 控件（GWidget），中心锚点 0.5 置于按下位置，显示状态由代码控制
+- [自定义 Timer 类](custom-timer-class.md) — 自研 Timer 类替代 Laya.timer，需补全 frameLoop/clearTimer 等平替方法，全项目裸 Laya.timer 调用迁移
+- [技术栈偏好](tech-stack.md) — LayaAir + TypeScript 羽毛球游戏（badm/mag），动画 playAnim(crossFade) 驱动，hit 持续调用需防重入
+- [用户系统架构](user-system-arch.md) — Cloud 封装、IDB 本地存储、te 云函数分发、Worker IP 风控；含 Dollar 商品特殊处理与密匙计算规则
+- [AGC 云函数部署激活](agc-func-deploy-activation.md) — 上传 zip 不等于激活新代码，需走完发布/部署流程；加版本标记验证生效；必要时删函数重建
+- [AGC 云函数容器不持久](agc-cloud-func-persistence.md) — 重新部署/冷启动重建容器，文件数据丢，跨部署需 CloudDB
+- [AGC 存储约束与缓存坑](agc-storage-cors-constraint.md) — 仅 GET(HEAD 400)、Range 头不可信、无 Cache-Control 致各端启发式缓存回旧头；微信 wx.request 无 no-store 等价物，探测 URL 加 _t 时间戳破缓存（curl Range GET 对照法）
+- [mag 独立管理函数](mag-te-merge.md) — mag 已从 te 抽离为独立函数（CloudDB 存储后无隔离问题），前端 {name:"mag"} 直连；db.js 双副本需同步
+- [badm 默认角色加载与 mag 初始化架构](badm-default-role-mag-init.md) — boy@0.lh 默认角色在 mag 建立前加载并挂载 controller，mag 初始化跳过 girl setDress
+- [位置补偿规则](position-compensation-rule.md) — 结束击球不结束位置补偿，持续到抵达击球区域(distXZ<=0.3)才统一清理；球快速穿越时补偿会超过球位置，球很近时调 (-1, 0) 停止补偿（动画保持不切 idle），(-1, -1) 才停止切 idle；compMoving 使补偿跨 WINDUP/RECOVERY/IDLE 状态持续
+- [交互风格偏好](interaction-style.md) — 用户偏好中文交互且技术术语保留英文、直接执行不解释原理、常设置多代理工作流
+- [鹰眼挑战系统完全失效](hawkeye-challenge-broken.md) — 双根因实锤：isCalc 守卫致静默退出 + setInterval 自杀闭包致 'target' 崩溃，已修复
+- [击球判定范围规则](hit-judgment-range-rule.md) — 进入击球姿态后球在前方判定范围内就要计算jump/dive，不限时机
+- [命名约定](naming-conventions.md) — 用户代码命名偏好：camelCase、短缩写名、英文命名、贴图单字缩写匹配
+- [GOBE node XHR polyfill](feedback/gobe-node-xhr-polyfill.md) — GOBE.js 自家 Request$1.post 无环境守卫需 polyfill；window 必须窄对象（无 navigator）避免误判浏览器；axios 0.27 无 exports 限制安全版
+- [点击事件优先级](click-event-priority.md) — 兜底点击禁绑场景根争抢事件，绑专用背景节点(Sprite_1)与控件互不干扰（hasListener 让位方案已被用户否定）
+- [LayaAir UI 模式](laya-ui-patterns.md) — sList/gList 单元节点类型必须匹配(Image vs Sprite)，selectEnable+selectHandler 选择事件模式；资源包版本探测：AGC 不暴露 ETag/Content-Range(跨域读 null)、无 Cache-Control 致浏览器启发式缓存旧头、HEAD 400 → fetchInfo 用 no-store GET+cancel body，lm/size 三通道对比
+- [头像框 shop 功能](avatar-frame-shop-feature.md) — 头像框选择/购买功能实现状态，已修复 sList 空白根因、dialog 确认按钮未绑定、新增拖动边框移动、购买逻辑（货币弹测试框/普通直购）与 selectedIndex 显式设- [NG CloudDB 模型](ng-cloudb-model.md) — 用户自建 NG 对象类型（dollar Integer 等字段），替代 QuickStartDemo
+- [te-CloudDB 存储架构](te-cloudb-storage-arch.md) — te→Worker→cloudb→CloudDB 链路，SRV_KEY 跳风控，多实例分叉根治；部署 zip 在 dist/- [隐私政策合规改造](project_privacy_policy.md) — 典游华为合规已完成：privacy.html 双副本需同步(html 源+public 部署)；开发者肖文健/电话13326445090；遗留：提审前需补有效邮箱- [匹配系统重构](match-system-refactor.md) — load.ts 移除房间按钮，进入直接匹配，随机单/双人；粒子发散+按钮呼吸效果规范
+- [PVE 训练按钮](pve-match-button.md) — match.ls 新增 pve/pve2 按钮，点击跳转 PVE 场景，需先取消之前的匹配模式
+- [LayaAir ui2 (FairyGUI) 引擎 API](project_fairygui_ui2_api.md) — 禁止 new 旧控件，只用 G 系；GWidget.background=DrawRectCmd.create 替代 graphics 画底；GTextField html+text 富文本；GImage.texture 直赋无效需 setAtlas；GTextInput 事件(INPUT/ENTER/CHANGE/FOCUS/BLUR)转发、失焦 focus=false；dialog 拖动锚点修正；Res.get 缓存单例需 offAllCaller 防叠加
+- [电子乐自研双端合成引擎](tonejs-electronic-music.md) — tone.ts 自研引擎替代 Tone.js（网页+微信通用），23 乐器音色+5 效果器+和弦记法，au.ts API 不变；背景乐流式无限随机架构（WebAudio 时轴 cursor+500ms 心跳补排+12s 前瞻免疫双时钟漂移）
+- [双手操作模式](dual-hand-mode.md) — menu.ls 新增 double 节点，badm 中双手模式：移动方向→angV、滑动距离→力度、滑动方向→anH
+- [Res 双包资源系统调用约定](res-system-conventions.md) — 包 URL 统一走 ResList（nor=Cloudflare）、活动包只由 setAct 控制、vers 无更新仍须 url 注册包、net 事件短码 DP/DE/DC
+- [微信小游戏平台适配约束](wechat-minigame-constraints.md) — 微信小游戏环境为 CommonJS，不支持 ESM export、WebGPU、indexedDB、fetch；需发布后处理 ESM→CJS 转换
+- [微信小游戏适配架构](wxgame-adaptation.md) — wx.ts 适配层/brdec 纯 JS 解压/excludeFilesRule；主包超限正解=PlayerSettings.modules 关引擎模块（物理四库已删省 2.4MB），blueprint/ik/legacyParser 还可省 301K
+- [hitoff.lani 文件损坏](hitoff-lani-file-corruption.md) — nor 包内 hitoff.lani 近乎空文件，微信端 AnimationClip 解析器越界报 "Index out of range: 2"；2 玩家各加载一次触发两条报错
+- [lh 打包保持 web 发布原结构](lh-original-folder-structure.md) — lh 与同名文件夹平级，mesh/lm/lmat 直接放同名文件夹内，不按扩展名分子目录
+- [lh 资源加载占位符方案](lh-placeholder-loading.md) — lh 用 __mesh/__mats 占位符；_relKey 相对目录解析（d3/court@0.lh 引用按 lh 所在目录拼 nor/d3/... 前缀）
+- [GButton prefab uuid 桥](gbutton-prefab-uuid-bridge.md) — 场景 _$prefab uuid 引用在 .br 包通道丢失的根因（引擎 uuidMap 空）与 res.ts bridgeUiComps 桥（formatURL hook + blobURL 预载 + __src 占位符化 + 图集帧贴回）；tool/ui 需手工同步编辑器改动
+- [游戏场景 SCENE_URL uuid 断链修复](game-scene-res-url-fix.md) — badm.ls 跳转 res://uuid 静默失败根因（fileconfig 全空 uuidMap 断）与相对路径修复；新构建产物 prefab 是相对路径改 url 即通、旧构建是 uuid 需桥；nav 引擎分支已加失败 warn
+- [AnimationController 动态加载](laya-animation-controller-dynamic-load.md) — 引擎原生 .mcc loader（registerLoader），clip 依赖自动递归解析；blob 通道断链需占位符化预处理
+- [.nor.br 解压进度显示](nor-br-decompression-progress.md) — 游戏选择页添加解压进度（实际或预测），与 MT 库协同
+- [落地延迟1s结算bug](badm-delayed-settle-bug.md) — groundHit 每帧重发致定时器永不到期，首落为准+已有待结算不重排
+- [girl1角色加载重复挂载bug](girl1-load-duplicate-mount-bug.md) — 模板单例直挂+状态机共享引用致动画污染，改 clone 模式+模板不进场景
+- [PBR材质纯色变黑根因](pbr-material-black-root-cause.md) — parseLegacy 按属性当前值判类型应用 vectors，albedoColor Vector4→Color 通道读 undefined 致纯色材质全黑；修构造走引擎反射+Color 对象
+- [assetsCollect 写回源目录事故](assetsCollect-writeback-bug.md) — 无 `--dst` 默认输出=cwd/web=源目录，改写 ls 引用污染 web 原结构；必须显式指定 dst，只做纯复制+指定前缀替换
+- [PVP相机挂载+用户ID显示双bug](pvp-camera-attach-and-userid-display-bug.md) — mag硬编码0号相机致相机跟错角色+gList显示房间id而非用户id+连接缺传userid；四处修复（mag/pve/badm setup/badm gList）
+- [PVP localCha 分配错位](pvp-localcha-assignment-bug.md) — 双端同控0号角色根因：setup严格匹配+反馈回路缺失；2026-10-23实锤三修复（规范化匹配/定向房主/本地校验）
+- [非权威端PVP状态同步失灵](pvp-non-auth-state-sync.md) — 非权威端倒计时卡/阶段进不去/鹰眼完全不同步：rule本地自跑被applyState覆盖+绝对时钟钟差+鹰眼零同步；修法：禁非权威端本地推进+倒计时改帧数+鹰眼双端消息同步+回放用snapshots
+- [Inp 事件队列与鹰眼双击修复](inp-event-queue-hawkeye-doubleclick-fix.md) — Inp 加 MPM 队列派发 dobclick，badm 统一走 ctrl.inp 注册；根因：自维护 320ms 双击阈值与手机端触控间隔不兼容
+- [材质加载与鹰眼挑战修复](material-loading-hawkeye-fix.md) — res.ts 改代码构造材质绕开引擎 lmat loader（blob URL 报错）；rule.ts 写入鹰眼挑战到游戏环节
+- [MT 数学库建设计划](mt-math-library-plan.md) — lib 下新建 MT 库统一管理微积分计算，支持多平台高效实现
+- [发布产物 bundle 空壳问题](release-bundle-empty-shell.md) — missing component type 报错：release bundle 可能 0 脚本模块，从 bin/js/bundles/bundle.js 覆盖；uuid grep 定位脚本
+- [GBK 编码脏名修复](gbk-encoding-fix-pattern.md) — 资源文件名含中文字符 GBK 损坏的修复模式：重命名 + 同步映射键 + 核验 lh 结构
+- [特殊接球移速快慢统一重构](special-hit-speed-unified-refactor.md) — 特殊接球从 diving 冲程模型重构为移速快慢统一模型，移除冲程速度曲线，跳跃击球按高度决定后摇
+- [鹰眼挑战显示对方出球bug](hawkeye-challenge-wrong-opponent-shot.md) — 单机模式球落地被救起后鹰眼回放对方出球：RALLYING期救球未清旧鹰眼记录致L1对方轨迹残留，修法=合法救球清旧记录重记新落地
+</system-reminder>
+
+<system-reminder>
+# Memory Index
+# Memory Index
+
+- [PVP时间驱动击球同步](pvp-time-driven-hit-sync.md) — ball.hitAt(t,ballPos)回退→过去时刻起算→simTo现在双端收敛；球帧校正放开isCalc（旧=对打从不校正根因）；confirmEagle广播双端同进鹰眼
+- [鹰眼阶段v4](eagle-phases-v4-confirm-challenge.md) — CONFIRM(3s)双击→CHALLENGE(7,5s挑战回放)→下一轮；endEagleConfirm恢复（用户回滚丢方法）；Au.cd专用倒计时音（A5哔/末秒A6双哔）只在发球阶段末3秒；用户手工修复区不碰
+- [鹰眼确认阶段+区间查询修复](eagle-confirm-phase-and-get-range-fix.md) — 球不动=phy.get区间在isCalc=false后simTo短路同点（历史改map提取+未来快照防污染）；EAGLE_CONFIRM=6正式3s阶段；badm魔数RALLYING=3全错改符号；提示每秒Au.tap
+- [落地救起窗口规格v3](settle-rescue-pvp-only-with-time-condition.md) — 用户纠正：1s救起仅PVP抵网络延时且有条件（击球时刻<落地时刻才可cancel）；PVE立即结算；ball.hit emit带time物理时轴
+- [鹰眼记录救球后未更新bug](eagle-rec-stale-after-rescue-bug.md) — 落地被救起再落地判分时回放显示旧落地轨迹（对面出球）得分却是新落地——RALLYING 期 hit 清记录（判罚作废⇒证据作废），死球期不清
+- [死球期击球规格v2](deadball-hit-allowed-v2-spec.md) — 用户修正：允许死球击球（不判罚不记录不结算）；鹰眼记录发球阶段才清（onServeStart）没清不覆盖；采样中即可回放（快照隔离）
+- [死球期击球误判bug](deadball-phase-hit-misjudge-bug.md) — 结算后分球前击球：死球出手球乱飞→SERVING期残留结算=凭空判分；三守卫（不出手/不结算仅RALLYING/不记录）
+- [双打击球权误判bug](doubles-hit-rolled-back-misjudge-bug.md) — RECOVERY吞击球（currentHitTeam滞后）+同队竞态击球（判罚但球已乱飞）；修法：RECOVERY排队+出手前拦截（不出手不判罚）
+- [PVP状态同步+鹰眼记录+跳跃鱼跃v2](pvp-state-sync-eaglerec-jump-dive-v2.md) — 非权威端三根因（rule本地自跑/倒计时绝对时间戳钟差/窗口零同步→相对量+单端推进）；鹰眼记录v2播存储不predict；跳跃到顶即降后摇=下降+150；鱼跃限距
+- [鱼跃对角镜像+根运动对齐](dive-diagonal-mirror-and-rootmotion-align.md) — 右下↔左上互反=角度体系差90°（atan2(x,z)统一语义铁律）；根运动v2=Hips世界XZ对齐owner位置Y留动画
+- [击球范围调试可视化](cha-hit-range-debug-viz.md) — Cha.dbgRange=true默认开：PixelLineRenderer线框（前扇绿/后窄扇红/高度带/鱼跃矩形橙/脚下十字白），mag.update喂参
+- [弹窗销毁重建+头像消失](dialog-destroy-rebuild-avatar-lost.md) — _closeDialog destroy root+Res.clear(styleKey)防缓存尸体（半瘫渲染框在头像丢）；贴图守卫加texLost兜底；悬空panelNode竞态销毁
+- [PVP销毁残留bug](pvp-destroy-residue-bug.md) — 真机没消息/全强制通过/serializeFrame崩=badm.onDestroy不销毁mag（旧实例心跳+回调残留）；_sendFinal文案误导修区分；mock必须带root/destroy/offFrame
+- [PVP移动同步校正风暴bug](pvp-move-sync-verify-storm-bug.md) — 移动不同步根因=偏差是延迟假象却发stop校正循环打停+syncAction无节流；移动中不校正（3×tol兜底带移动状态）；pvpReal真实移动断言全绿
+- [PVP confirm日志文案+断言假阳性](pvp-confirm-log-assert-false-positive.md) — _sendFinal 正常完成/超时强制打同一"已强制通过"日志致误判；断言 forced-- 逻辑写反到-1触发FAIL；实际链路89ms全员确认正常
+- [PVP相机/gList用户id修复](pvp-camera-glist-userid-fix.md) — 相机硬编码players[0]致B端跟对方角色（连带"没同步"感受）；gList id显示props.userid非GOBE playerId；localCha错开断言入pvpReal
+- [GOBE服务器playerId体系](gobe-server-playerid-system.md) — 真实服务三根因：PlayerConfig无playerId字段（服务器分配）/ownerId各端不一致（权威改排序首位）/startFrameSync双端幂等；pvpReal真服务测试全绿；XHR polyfill+window窄对象
+- [PVP权威重认定循环bug](pvp-auth-reconfirm-loop-bug.md) — 三根因（startFrameSync函数引用比较恒false/初始权威取players[0]/严格===）+id显示错；pvpSim测试架构（真实pvp.ts+mock ALS多端，esbuild onResolve filter必须/.*/）
+- [特殊击球按住语义](special-hit-press-hold-semantics.md) — v3 终局：连点+按住触发/无瞬移纯移速快慢/jumphit 跳跃 y 轴系统(cha.ts)/松手立即击球
+- [MPMD addByTime对象丢失](mpmd-addbytime-object-loss.md) — 无坐标带layout对象被静默丢弃致phy.map恒空（鹰眼快照null主犯）；getTC恒undefined致simTo不写缓存；停止模拟不清缓存策略
+- [lmat纹理sRGB色偏](lmat-texture-srgb-constructparams.md) — load未透传constructParams[5](sRGB)致伽马2.2色偏；ILoadOptions官方支持直传
+- [Inp事件队列dobclick](inp-event-queue-dobclick.md) — 鹰眼双击改走Inp+MPM队列；根因=自维护stage双击320ms与Inp600ms两套阈值打架
+- [lmat uniform名纹理bug](lmat-uniform-name-texture-bug.md) — _buildMaterial 按 u_AlbedoTexture 直挂字段无人消费致纹理全丢，_setMatTex 驼峰setter+shaderData兜底
+- [鱼跃卡死bug](dive-stuck-bug.md) — 收尾出口全挂WINDUP分支而发起态是IDLE/MOVE，加滞留分支+超时起身+发起即冲刺
+- [badm 倒计时 redAt 阈值](badm-countdown-redAt-threshold.md) — 15秒→5秒，新增 redAt 阈值参数用于警告变色，tsc 全链通过
+- [badm 准备阶段球规则冲突](badm-prep-phase-ball-rule-conflict.md) — "所有人不持球"与持球兜底铁律冲突，加阶段守卫钉住 currentServer
+- [badm 球轨迹绘制被误关](badm-trajectory-disabled.md) — 修改人物箭头时误关了轨迹开关，按之前形式恢复
+- [物理引擎轨迹可视化 track 系统](phy-track-visualization.md) — debug 画线重构为 TrackCfg 配置化轨迹：历史段渐变+预测段影子模拟（三不原则防污染），predict 10ms 步长 1/10 计算量
+- [phy 引擎定点化重构](phy-fixed-point-refactor.md) — phy.ts/phyCfg.ts 改用整数运算（Q10 格式 ×1024），避免浮点数各平台差异；整数状态内核+浮点内部+边界量化
+- [badm 比分展示重构](badm-score-display-refactor.md) — 比分从统一 show 节点改为 box/red/blue 节点，HTML 格式红蓝分色
+- [badm 控件击球操作重构](badm-ui-control-refactor.md) — hit 控件作为击球操作锚点，取消底圆绘制，滑动距离与箭头按屏幕短边自适应
+- [badm 移动摇杆底座](badm-move-base-control.md) — 改用 badm.ls 场景文件中的 move 控件（GWidget），中心锚点 0.5 置于按下位置，显示状态由代码控制
+- [自定义 Timer 类](custom-timer-class.md) — 自研 Timer 类替代 Laya.timer，需补全 frameLoop/clearTimer 等平替方法，全项目裸 Laya.timer 调用迁移
+- [技术栈偏好](tech-stack.md) — LayaAir + TypeScript 羽毛球游戏（badm/mag），动画 playAnim(crossFade) 驱动，hit 持续调用需防重入
+- [用户系统架构](user-system-arch.md) — Cloud 封装、IDB 本地存储、te 云函数分发、Worker IP 风控；含 Dollar 商品特殊处理与密匙计算规则
+- [AGC 云函数部署激活](agc-func-deploy-activation.md) — 上传 zip 不等于激活新代码，需走完发布/部署流程；加版本标记验证生效；必要时删函数重建
+- [AGC 云函数容器不持久](agc-cloud-func-persistence.md) — 重新部署/冷启动重建容器，文件数据丢，跨部署需 CloudDB
+- [AGC 存储约束与缓存坑](agc-storage-cors-constraint.md) — 仅 GET(HEAD 400)、Range 头不可信、无 Cache-Control 致各端启发式缓存回旧头；微信 wx.request 无 no-store 等价物，探测 URL 加 _t 时间戳破缓存（curl Range GET 对照法）
+- [mag 独立管理函数](mag-te-merge.md) — mag 已从 te 抽离为独立函数（CloudDB 存储后无隔离问题），前端 {name:"mag"} 直连；db.js 双副本需同步
+- [badm 默认角色加载与 mag 初始化架构](badm-default-role-mag-init.md) — boy@0.lh 默认角色在 mag 建立前加载并挂载 controller，mag 初始化跳过 girl setDress
+- [位置补偿规则](position-compensation-rule.md) — 结束击球不结束位置补偿，持续到抵达击球区域(distXZ<=0.3)才统一清理；球快速穿越时补偿会超过球位置，球很近时调 (-1, 0) 停止补偿（动画保持不切 idle），(-1, -1) 才停止切 idle；compMoving 使补偿跨 WINDUP/RECOVERY/IDLE 状态持续
+- [交互风格偏好](interaction-style.md) — 用户偏好中文交互且技术术语保留英文、直接执行不解释原理、常设置多代理工作流
+- [鹰眼挑战系统完全失效](hawkeye-challenge-broken.md) — 双根因实锤：isCalc 守卫致静默退出 + setInterval 自杀闭包致 'target' 崩溃，已修复
+- [击球判定范围规则](hit-judgment-range-rule.md) — 进入击球姿态后球在前方判定范围内就要计算jump/dive，不限时机
+- [命名约定](naming-conventions.md) — 用户代码命名偏好：camelCase、短缩写名、英文命名、贴图单字缩写匹配
+- [GOBE node XHR polyfill](feedback/gobe-node-xhr-polyfill.md) — GOBE.js 自家 Request$1.post 无环境守卫需 polyfill；window 必须窄对象（无 navigator）避免误判浏览器；axios 0.27 无 exports 限制安全版
+- [点击事件优先级](click-event-priority.md) — 兜底点击禁绑场景根争抢事件，绑专用背景节点(Sprite_1)与控件互不干扰（hasListener 让位方案已被用户否定）
+- [LayaAir UI 模式](laya-ui-patterns.md) — sList/gList 单元节点类型必须匹配(Image vs Sprite)，selectEnable+selectHandler 选择事件模式；资源包版本探测：AGC 不暴露 ETag/Content-Range(跨域读 null)、无 Cache-Control 致浏览器启发式缓存旧头、HEAD 400 → fetchInfo 用 no-store GET+cancel body，lm/size 三通道对比
+- [头像框 shop 功能](avatar-frame-shop-feature.md) — 头像框选择/购买功能实现状态，已修复 sList 空白根因、dialog 确认按钮未绑定、新增拖动边框移动、购买逻辑（货币弹测试框/普通直购）与 selectedIndex 显式设- [NG CloudDB 模型](ng-cloudb-model.md) — 用户自建 NG 对象类型（dollar Integer 等字段），替代 QuickStartDemo
+- [te-CloudDB 存储架构](te-cloudb-storage-arch.md) — te→Worker→cloudb→CloudDB 链路，SRV_KEY 跳风控，多实例分叉根治；部署 zip 在 dist/- [隐私政策合规改造](project_privacy_policy.md) — 典游华为合规已完成：privacy.html 双副本需同步(html 源+public 部署)；开发者肖文健/电话13326445090；遗留：提审前需补有效邮箱- [匹配系统重构](match-system-refactor.md) — load.ts 移除房间按钮，进入直接匹配，随机单/双人；粒子发散+按钮呼吸效果规范
+- [PVE 训练按钮](pve-match-button.md) — match.ls 新增 pve/pve2 按钮，点击跳转 PVE 场景，需先取消之前的匹配模式
+- [LayaAir ui2 (FairyGUI) 引擎 API](project_fairygui_ui2_api.md) — 禁止 new 旧控件，只用 G 系；GWidget.background=DrawRectCmd.create 替代 graphics 画底；GTextField html+text 富文本；GImage.texture 直赋无效需 setAtlas；GTextInput 事件(INPUT/ENTER/CHANGE/FOCUS/BLUR)转发、失焦 focus=false；dialog 拖动锚点修正；Res.get 缓存单例需 offAllCaller 防叠加
+- [电子乐自研双端合成引擎](tonejs-electronic-music.md) — tone.ts 自研引擎替代 Tone.js（网页+微信通用），23 乐器音色+5 效果器+和弦记法，au.ts API 不变；背景乐流式无限随机架构（WebAudio 时轴 cursor+500ms 心跳补排+12s 前瞻免疫双时钟漂移）
+- [双手操作模式](dual-hand-mode.md) — menu.ls 新增 double 节点，badm 中双手模式：移动方向→angV、滑动距离→力度、滑动方向→anH
+- [Res 双包资源系统调用约定](res-system-conventions.md) — 包 URL 统一走 ResList（nor=Cloudflare）、活动包只由 setAct 控制、vers 无更新仍须 url 注册包、net 事件短码 DP/DE/DC
+- [微信小游戏平台适配约束](wechat-minigame-constraints.md) — 微信小游戏环境为 CommonJS，不支持 ESM export、WebGPU、indexedDB、fetch；需发布后处理 ESM→CJS 转换
+- [微信小游戏适配架构](wxgame-adaptation.md) — wx.ts 适配层/brdec 纯 JS 解压/excludeFilesRule；主包超限正解=PlayerSettings.modules 关引擎模块（物理四库已删省 2.4MB），blueprint/ik/legacyParser 还可省 301K
+- [hitoff.lani 文件损坏](hitoff-lani-file-corruption.md) — nor 包内 hitoff.lani 近乎空文件，微信端 AnimationClip 解析器越界报 "Index out of range: 2"；2 玩家各加载一次触发两条报错
+- [lh 打包保持 web 发布原结构](lh-original-folder-structure.md) — lh 与同名文件夹平级，mesh/lm/lmat 直接放同名文件夹内，不按扩展名分子目录
+- [lh 资源加载占位符方案](lh-placeholder-loading.md) — lh 用 __mesh/__mats 占位符；_relKey 相对目录解析（d3/court@0.lh 引用按 lh 所在目录拼 nor/d3/... 前缀）
+- [GButton prefab uuid 桥](gbutton-prefab-uuid-bridge.md) — 场景 _$prefab uuid 引用在 .br 包通道丢失的根因（引擎 uuidMap 空）与 res.ts bridgeUiComps 桥（formatURL hook + blobURL 预载 + __src 占位符化 + 图集帧贴回）；tool/ui 需手工同步编辑器改动
+- [游戏场景 SCENE_URL uuid 断链修复](game-scene-res-url-fix.md) — badm.ls 跳转 res://uuid 静默失败根因（fileconfig 全空 uuidMap 断）与相对路径修复；新构建产物 prefab 是相对路径改 url 即通、旧构建是 uuid 需桥；nav 引擎分支已加失败 warn
+- [AnimationController 动态加载](laya-animation-controller-dynamic-load.md) — 引擎原生 .mcc loader（registerLoader），clip 依赖自动递归解析；blob 通道断链需占位符化预处理
+- [.nor.br 解压进度显示](nor-br-decompression-progress.md) — 游戏选择页添加解压进度（实际或预测），与 MT 库协同
+- [落地延迟1s结算bug](badm-delayed-settle-bug.md) — groundHit 每帧重发致定时器永不到期，首落为准+已有待结算不重排
+- [girl1角色加载重复挂载bug](girl1-load-duplicate-mount-bug.md) — 模板单例直挂+状态机共享引用致动画污染，改 clone 模式+模板不进场景
+- [PBR材质纯色变黑根因](pbr-material-black-root-cause.md) — parseLegacy 按属性当前值判类型应用 vectors，albedoColor Vector4→Color 通道读 undefined 致纯色材质全黑；修构造走引擎反射+Color 对象
+- [assetsCollect 写回源目录事故](assetsCollect-writeback-bug.md) — 无 `--dst` 默认输出=cwd/web=源目录，改写 ls 引用污染 web 原结构；必须显式指定 dst，只做纯复制+指定前缀替换
+- [PVP相机挂载+用户ID显示双bug](pvp-camera-attach-and-userid-display-bug.md) — mag硬编码0号相机致相机跟错角色+gList显示房间id而非用户id+连接缺传userid；四处修复（mag/pve/badm setup/badm gList）
+- [PVP localCha 分配错位](pvp-localcha-assignment-bug.md) — 双端同控0号角色根因：setup严格匹配+反馈回路缺失；2026-10-23实锤三修复（规范化匹配/定向房主/本地校验）
+- [非权威端PVP状态同步失灵](pvp-non-auth-state-sync.md) — 非权威端倒计时卡/阶段进不去/鹰眼完全不同步：rule本地自跑被applyState覆盖+绝对时钟钟差+鹰眼零同步；修法：禁非权威端本地推进+倒计时改帧数+鹰眼双端消息同步+回放用snapshots
+- [Inp 事件队列与鹰眼双击修复](inp-event-queue-hawkeye-doubleclick-fix.md) — Inp 加 MPM 队列派发 dobclick，badm 统一走 ctrl.inp 注册；根因：自维护 320ms 双击阈值与手机端触控间隔不兼容
+- [材质加载与鹰眼挑战修复](material-loading-hawkeye-fix.md) — res.ts 改代码构造材质绕开引擎 lmat loader（blob URL 报错）；rule.ts 写入鹰眼挑战到游戏环节
+- [MT 数学库建设计划](mt-math-library-plan.md) — lib 下新建 MT 库统一管理微积分计算，支持多平台高效实现
+- [发布产物 bundle 空壳问题](release-bundle-empty-shell.md) — missing component type 报错：release bundle 可能 0 脚本模块，从 bin/js/bundles/bundle.js 覆盖；uuid grep 定位脚本
+- [GBK 编码脏名修复](gbk-encoding-fix-pattern.md) — 资源文件名含中文字符 GBK 损坏的修复模式：重命名 + 同步映射键 + 核验 lh 结构
+- [特殊接球移速快慢统一重构](special-hit-speed-unified-refactor.md) — 特殊接球从 diving 冲程模型重构为移速快慢统一模型，移除冲程速度曲线，跳跃击球按高度决定后摇
+- [鹰眼挑战显示对方出球bug](hawkeye-challenge-wrong-opponent-shot.md) — 单机模式球落地被救起后鹰眼回放对方出球：RALLYING期救球未清旧鹰眼记录致L1对方轨迹残留，修法=合法救球清旧记录重记新落地
+</system-reminder>
+
+<system-reminder>
+Deferred built-in tools available (use tool_describe to load schema, then tool_call to execute).
+If you already called tool_describe for a tool earlier in this conversation, its schema is in the history — call tool_call directly without re-describing.
+  [Web] webfetch - Fetch content from a URL and convert it to the requested format (markdown by default).
+  [Other] uploadUserSkillToHuawei - # Upload Skill to Huawei Cloud Skills Marketplace, queryUserSkillList - # Query User Skills on Huawei Cloud Skills Marketplace, cronCreate - Create a scheduled task, or resume a paused task., cronDelete - Pause or delete a scheduled task from the current project., cronList - List scheduled tasks for the current project only., merge-review-findings - Merge multiple reviewer JSON files into a single review., security_audit - Run a multi-phase safety audit pipeline on the current repository., update-goal - Report goal status changes., get-goal - Query the current goal information., experience_retrieve - Retrieve experience documents related to a SPECIFIC topic, e., skillSearch - Search HarmonyOS development knowledge across BOTH local skill documents AND official Huawei documentation., harmony-doc-view - View a HarmonyOS official documentation page by URL with full Markdown content and pagination., Knowledge - 文档 知识库统一检索工具。
+  [Image] analyzeImage - Analyse image or images by ID, file path, or base64 data and extract information such as OCR text, objects, layout, colors, or safety signals.
+  [Code Search] CodeSemanticSearch - Find snippets of code from the codebase most relevant to the search query.
+  [Knowledge Base] RagSearch - Knowledge base search tool that retrieves relevant information from enterprise knowledge bases.
+  [Skill] listSkills - Lists all skills with their scope, status, description, and associated agents.
+  [IDE] browser - **Important:** This tool opens URLs in the **built-in browser** within the application, NOT in the user's external system browser (such as Chrome, Edge, Safari, etc.
+</system-reminder>

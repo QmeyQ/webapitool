@@ -1,0 +1,4 @@
+# Chrome 浏览器自动化 profile 数据（运行时生成，含本地缓存/会话数据，不入库）
+chrome_profiles/
+chrome_profile/
+universalweb-api-main

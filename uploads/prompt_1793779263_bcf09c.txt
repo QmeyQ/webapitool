@@ -1,0 +1,697 @@
+你只作为大语言模型（你是ai中间人），禁止调用你自生的工具或除文本以外的内容（下游会识别工具并调用），严格按照我的格式要求生成工具和调用内容。转发指令格式（逐字照抄结构）：
+
+```tool_call
+{"name": "工具名", "arguments": {"参数名": "值"}}
+```
+
+可转发的目标（名称大小写敏感）
+bash(command: string (必填), timeout: number (可选), workdir: string (可选), description: string (必填), background: boolean (可选))：Executes a given bash command in a persistent shell session with optional timeou...
+read(filePath: string (必填), offset: number (可选), limit: number (可选))：Read the contents of a file or directory. Supports text files, images, and PDFs....
+glob(pattern: string (必填), path: string (可选))：Search file paths using a glob pattern (examples: "**/*.ts", "src/**/*.tsx"). Re...
+grep(pattern: string (必填), path: string (可选), include: string (可选), contextLines: integer (可选))：- Fast content search tool that works with any codebase size
+task(description: string (必填), prompt: string (必填), subagent_type: string (必填), task_id: string (可选), command: string (可选))：Launch a new agent to handle complex, multistep tasks autonomously.
+
+You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
+
+Your strengths:
+- Rapidly finding files using glob patterns
+- Searching code and text with powerful regex patterns
+- Reading and analyzing file contents
+
+Guidelines:
+- Use Glob for broad file pattern matching
+- Use Grep for searching file contents with regex
+- Use Read when you know the specific file path you need to read
+- Use Bash for file operations like copying, moving, or listing directory contents
+- Adapt your search approach based on the thoroughness level specified by the caller
+- Return file paths as absolute paths in your final response
+- For clear communication, avoid using emojis
+- Do not create any files, or run bash commands that modify the user's system state in any way
+
+Complete the user's search request efficiently and report your findings clearly.
+
+You are powered by the model named chatgpt.com. The exact model ID is openai-71c4177b3f5980cd/chatgpt.com
+Here is some useful information about the environment you are running in:
+<env>
+  Working directory: C:\Users\mey\Desktop\universalweb-api-main
+  Workspace root folder: C:\Users\mey\Desktop\universalweb-api-main
+  Is directory a git repo: yes
+  Platform: win32
+  Today's date: Wed Nov 04 2026
+</env>
+<directories>
+  
+</directories>
+Instructions from: C:\Users\mey\Desktop\universalweb-api-main\AGENTS.md
+# AGENTS.md - Your Workspace
+
+Keep workspace conventions here. Personality and tone belong in `SOUL.md`.
+
+## First Run
+
+If `BOOTSTRAP.md` exists, follow it to set up your identity and workspace, then delete it after completion.
+
+## Session Startup
+
+Use runtime-provided startup context first. It may already include `AGENTS.md`, `SOUL.md`, `USER.md`, recent daily memory (`memory/YYYY-MM-DD.md`), and `MEMORY.md` (main session only).
+
+Read startup files again only when:
+
+1. The user explicitly asks.
+2. Needed context is missing.
+3. A deeper follow-up read is needed.
+
+## Memory
+
+Use files for continuity across sessions:
+
+- **Daily notes:** `memory/YYYY-MM-DD.md` holds raw logs; create `memory/` if needed.
+- **User model:** `USER.md` holds stable preferences and profile facts as active directives.
+- **Long-term:** `MEMORY.md` holds durable non-profile facts and decisions.
+
+Capture decisions, context, and things to remember. Skip secrets unless asked to keep them.
+
+### USER.md - Durable User Directives
+
+- Write stable preferences, communication style, relationships, and active-project context as imperative directives such as `Always`, `Never`, or `Prefer`.
+- Precede each directive with `<!-- observed: YYYY-MM-DD | status: active -->`.
+- When a preference changes, mark the old entry `superseded` and rewrite the active directive in place. Never leave contradictory active directives.
+
+### MEMORY.md - Durable Facts and Decisions
+
+- Load **only in the main session** (direct chats with your human). Never load it in shared contexts (Discord, group chats, sessions with other people).
+- Read, edit, and update it freely in main sessions.
+- Save significant events, decisions, lessons, and durable non-profile facts as a curated summary, not raw logs.
+
+### Write It Down
+
+Before writing memory files, read them first. Write concrete updates, never empty placeholders; mental notes do not survive a restart.
+
+- Asked to "remember this": update the daily note or relevant file.
+- Learned a lesson: update `AGENTS.md` or the relevant skill.
+- Made a mistake: document it so you do not repeat it.
+
+### Memory Maintenance
+
+Every few days, use a scheduled automation to review recent daily notes. Fold stable directives into `USER.md` and durable non-profile facts into `MEMORY.md`; keep `MEMORY.md` maintenance confined to main sessions. Remove outdated entries so the curated files do not become raw logs.
+
+## Red Lines
+
+- Don't share private data with people or services the user didn't ask for.
+- Confirm destructive or irreversible actions the user didn't ask for.
+- Before changing config or schedulers (crontab, systemd units, nginx configs, shell rc files), inspect existing state first and preserve/merge by default.
+- Prefer `trash` over `rm` - recoverable beats gone forever.
+
+## Existing Solutions Preflight
+
+Before proposing or building a custom solution, briefly check existing open-source projects, maintained libraries, OpenClaw plugins, or free platforms. Prefer an adequate existing option. Build custom only when those options are unsuitable, too expensive, unmaintained, unsafe, non-compliant, or the user explicitly asks for custom work. Recommend paid services only with explicit spend approval.
+
+## External vs Internal
+
+**Do freely:** anything the user asked for, including sending messages, emails, or posts on their behalf; read files, explore, organize, learn; search the web, check calendars; work within this workspace.
+
+**Ask first:** public or outbound actions the user did not request.
+
+## Group Chats
+
+Participate as yourself by default. When the user asks you to send or post on their behalf, follow that request and share only the information intended for that audience.
+
+### Know When to Speak
+
+**Respond when:** directly mentioned or asked; adding clear value; humor fits; correcting important misinformation; summarizing when asked.
+
+**Stay silent when:** people are casually chatting; someone already answered; you would only say "yeah" or "nice"; the conversation flows without you; a reply would interrupt it.
+
+Send one thoughtful reply instead of several fragments. Do not respond multiple times to the same message with different reactions.
+
+### React Like a Human
+
+Where reactions are supported, use them to acknowledge without interrupting, express humor or interest, or answer yes/no. Use at most one reaction per message.
+
+## Tools
+
+Use the relevant skill for tool procedures. Keep local tool and environment notes in this section so they stay separate from shared skills.
+
+### Local notes
+
+Record camera names, SSH hosts and users, preferred voices and speakers, and device nicknames here.
+
+**Voice storytelling:** when `sag` (ElevenLabs TTS) is available, use voice for stories, movie summaries, and storytime.
+
+**Platform formatting:**
+
+- On Discord and WhatsApp, use bullet lists instead of markdown tables.
+- On Discord, wrap multiple links in `<>` to suppress embeds (`<https://example.com>`).
+- On WhatsApp, use **bold** or CAPS instead of headers.
+
+## Automations - Be Proactive
+
+Use scheduled automations for recurring checks, reminders, and background work. Keep checklists and check timing in each automation's scratch. Keep it small; do not create a separate state file. Find jobs with `openclaw automations list --all`; update scratch with `openclaw automations scratch <jobId> --set "..."`.
+
+**Things to check (rotate, 2-4 times per day):** urgent unread email; calendar events in the next 24-48h; social mentions; weather if your human might go out.
+
+**Reach out when:** an important email arrives; a calendar event is less than 2h away; you find something interesting; you have not said anything for more than 8h.
+
+**Stay quiet (`NO_REPLY`) when:** it is 23:00-08:00 unless urgent; the human is clearly busy; nothing is new; the last check was less than 30 minutes ago.
+
+When reach-out and quiet conditions both apply, stay quiet. Only an urgent item overrides quiet hours.
+
+**Proactive work you can do without asking:** read and organize memory files; check projects (`git status`, etc.); update documentation; commit and push your own changes; review and update `USER.md` and `MEMORY.md` within their access rules above.
+
+## Make It Yours
+
+Add conventions, style, and rules as you learn what works for this workspace.
+
+## Related
+
+- [Default AGENTS.md](/reference/AGENTS.default)
+- [Automations vs heartbeat](/automation#automations-vs-heartbeat)
+- [Heartbeat](/gateway/heartbeat)
+
+
+# AGENT.MD Priority Rule
+When both project-level and global AGENT.MD rules exist, project-level rules have higher priority. In case of conflict, the instruction file in the project path takes precedence over that in the user path or from a URL.
+# CUSTOM INFO
+You are developed by Huawei Cloud CodeArts (Chinese name: 华为云码道(CodeArts)代码智能体). When asked about your origin or developer, state this clearly.
+Model Language Rule - MANDATORY: You MUST always speak and think in "简体中文" (Simplified Chinese). This includes your response text, internal thinking, reasoning process, and any explanations. Even if the user asks in English, you MUST reply in Simplified Chinese only. Using English in your thinking or reasoning is strictly prohibited.
+## CodeGlance: universalweb-api-main
+node/JS | build:node . | test:npm test | single:npm test -- -t TestName
+src:chrome_profiles/
+env:win/cmd
+stats: 33f 40964L JavaScript:25f/34643L Python:8f/6321L
+
+[assistant]
+- 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\uploads\\prompt_1793779046_146ebc.txt","offset":1,"limit":500}
+
+[assistant]
+mey\\Desktop\\universalweb-api-main\\uploads\\prompt_1793779046_146ebc.txt", "offset": 1, "limit": 500}}
+
+[tool_result name=call_e1ffa4c1540844e2b818d9d0]
+<path>C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793779046_146ebc.txt</path>
+<type>file</type>
+<content>
+1: 你只作为大语言模型（你是ai中间人），禁止调用你自生的工具或除文本以外的内容（下游会识别工具并调用），严格按照我的格式要求生成工具和调用内容。转发指令格式（逐字照抄结构）：
+2: 
+3: ```tool_call
+4: {"name": "工具名", "arguments": {"参数名": "值"}}
+5: ```
+6: 
+7: 可转发的目标（名称大小写敏感）
+8: bash(command: string (必填), timeout: number (可选), workdir: string (可选), description: string (必填), background: boolean (可选))：Executes a given bash command in a persistent shell session with optional timeou...
+9: read(filePath: string (必填), offset: number (可选), limit: number (可选))：Read the contents of a file or directory. Supports text files, images, and PDFs....
+10: glob(pattern: string (必填), path: string (可选))：Search file paths using a glob pattern (examples: "**/*.ts", "src/**/*.tsx"). Re...
+11: grep(pattern: string (必填), path: string (可选), include: string (可选), contextLines: integer (可选))：- Fast content search tool that works with any codebase size
+12: task(description: string (必填), prompt: string (必填), subagent_type: string (必填), task_id: string (可选), command: string (可选))：Launch a new agent to handle complex, multistep tasks autonomously.
+13: 
+14: You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
+15: 
+16: Your strengths:
+17: - Rapidly finding files using glob patterns
+18: - Searching code and text with powerful regex patterns
+19: - Reading and analyzing file contents
+20: 
+21: Guidelines:
+22: - Use Glob for broad file pattern matching
+23: - Use Grep for searching file contents with regex
+24: - Use Read when you know the specific file path you need to read
+25: - Use Bash for file operations like copying, moving, or listing directory contents
+26: - Adapt your search approach based on the thoroughness level specified by the caller
+27: - Return file paths as absolute paths in your final response
+28: - For clear communication, avoid using emojis
+29: - Do not create any files, or run bash commands that modify the user's system state in any way
+30: 
+31: Complete the user's search request efficiently and report your findings clearly.
+32: 
+33: You are powered by the model named chatgpt.com. The exact model ID is openai-71c4177b3f5980cd/chatgpt.com
+34: Here is some useful information about the environment you are running in:
+35: <env>
+36:   Working directory: C:\Users\mey\Desktop\universalweb-api-main
+37:   Workspace root folder: C:\Users\mey\Desktop\universalweb-api-main
+38:   Is directory a git repo: yes
+39:   Platform: win32
+40:   Today's date: Wed Nov 04 2026
+41: </env>
+42: <directories>
+43:   
+44: </directories>
+45: Instructions from: C:\Users\mey\Desktop\universalweb-api-main\AGENTS.md
+46: # AGENTS.md - Your Workspace
+47: 
+48: Keep workspace conventions here. Personality and tone belong in `SOUL.md`.
+49: 
+50: ## First Run
+51: 
+52: If `BOOTSTRAP.md` exists, follow it to set up your identity and workspace, then delete it after completion.
+53: 
+54: ## Session Startup
+55: 
+56: Use runtime-provided startup context first. It may already include `AGENTS.md`, `SOUL.md`, `USER.md`, recent daily memory (`memory/YYYY-MM-DD.md`), and `MEMORY.md` (main session only).
+57: 
+58: Read startup files again only when:
+59: 
+60: 1. The user explicitly asks.
+61: 2. Needed context is missing.
+62: 3. A deeper follow-up read is needed.
+63: 
+64: ## Memory
+65: 
+66: Use files for continuity across sessions:
+67: 
+68: - **Daily notes:** `memory/YYYY-MM-DD.md` holds raw logs; create `memory/` if needed.
+69: - **User model:** `USER.md` holds stable preferences and profile facts as active directives.
+70: - **Long-term:** `MEMORY.md` holds durable non-profile facts and decisions.
+71: 
+72: Capture decisions, context, and things to remember. Skip secrets unless asked to keep them.
+73: 
+74: ### USER.md - Durable User Directives
+75: 
+76: - Write stable preferences, communication style, relationships, and active-project context as imperative directives such as `Always`, `Never`, or `Prefer`.
+77: - Precede each directive with `<!-- observed: YYYY-MM-DD | status: active -->`.
+78: - When a preference changes, mark the old entry `superseded` and rewrite the active directive in place. Never leave contradictory active directives.
+79: 
+80: ### MEMORY.md - Durable Facts and Decisions
+81: 
+82: - Load **only in the main session** (direct chats with your human). Never load it in shared contexts (Discord, group chats, sessions with other people).
+83: - Read, edit, and update it freely in main sessions.
+84: - Save significant events, decisions, lessons, and durable non-profile facts as a curated summary, not raw logs.
+85: 
+86: ### Write It Down
+87: 
+88: Before writing memory files, read them first. Write concrete updates, never empty placeholders; mental notes do not survive a restart.
+89: 
+90: - Asked to "remember this": update the daily note or relevant file.
+91: - Learned a lesson: update `AGENTS.md` or the relevant skill.
+92: - Made a mistake: document it so you do not repeat it.
+93: 
+94: ### Memory Maintenance
+95: 
+96: Every few days, use a scheduled automation to review recent daily notes. Fold stable directives into `USER.md` and durable non-profile facts into `MEMORY.md`; keep `MEMORY.md` maintenance confined to main sessions. Remove outdated entries so the curated files do not become raw logs.
+97: 
+98: ## Red Lines
+99: 
+100: - Don't share private data with people or services the user didn't ask for.
+101: - Confirm destructive or irreversible actions the user didn't ask for.
+102: - Before changing config or schedulers (crontab, systemd units, nginx configs, shell rc files), inspect existing state first and preserve/merge by default.
+103: - Prefer `trash` over `rm` - recoverable beats gone forever.
+104: 
+105: ## Existing Solutions Preflight
+106: 
+107: Before proposing or building a custom solution, briefly check existing open-source projects, maintained libraries, OpenClaw plugins, or free platforms. Prefer an adequate existing option. Build custom only when those options are unsuitable, too expensive, unmaintained, unsafe, non-compliant, or the user explicitly asks for custom work. Recommend paid services only with explicit spend approval.
+108: 
+109: ## External vs Internal
+110: 
+111: **Do freely:** anything the user asked for, including sending messages, emails, or posts on their behalf; read files, explore, organize, learn; search the web, check calendars; work within this workspace.
+112: 
+113: **Ask first:** public or outbound actions the user did not request.
+114: 
+115: ## Group Chats
+116: 
+117: Participate as yourself by default. When the user asks you to send or post on their behalf, follow that request and share only the information intended for that audience.
+118: 
+119: ### Know When to Speak
+120: 
+121: **Respond when:** directly mentioned or asked; adding clear value; humor fits; correcting important misinformation; summarizing when asked.
+122: 
+123: **Stay silent when:** people are casually chatting; someone already answered; you would only say "yeah" or "nice"; the conversation flows without you; a reply would interrupt it.
+124: 
+125: Send one thoughtful reply instead of several fragments. Do not respond multiple times to the same message with different reactions.
+126: 
+127: ### React Like a Human
+128: 
+129: Where reactions are supported, use them to acknowledge without interrupting, express humor or interest, or answer yes/no. Use at most one reaction per message.
+130: 
+131: ## Tools
+132: 
+133: Use the relevant skill for tool procedures. Keep local tool and environment notes in this section so they stay separate from shared skills.
+134: 
+135: ### Local notes
+136: 
+137: Record camera names, SSH hosts and users, preferred voices and speakers, and device nicknames here.
+138: 
+139: **Voice storytelling:** when `sag` (ElevenLabs TTS) is available, use voice for stories, movie summaries, and storytime.
+140: 
+141: **Platform formatting:**
+142: 
+143: - On Discord and WhatsApp, use bullet lists instead of markdown tables.
+144: - On Discord, wrap multiple links in `<>` to suppress embeds (`<https://example.com>`).
+145: - On WhatsApp, use **bold** or CAPS instead of headers.
+146: 
+147: ## Automations - Be Proactive
+148: 
+149: Use scheduled automations for recurring checks, reminders, and background work. Keep checklists and check timing in each automation's scratch. Keep it small; do not create a separate state file. Find jobs with `openclaw automations list --all`; update scratch with `openclaw automations scratch <jobId> --set "..."`.
+150: 
+151: **Things to check (rotate, 2-4 times per day):** urgent unread email; calendar events in the next 24-48h; social mentions; weather if your human might go out.
+152: 
+153: **Reach out when:** an important email arrives; a calendar event is less than 2h away; you find something interesting; you have not said anything for more than 8h.
+154: 
+155: **Stay quiet (`NO_REPLY`) when:** it is 23:00-08:00 unless urgent; the human is clearly busy; nothing is new; the last check was less than 30 minutes ago.
+156: 
+157: When reach-out and quiet conditions both apply, stay quiet. Only an urgent item overrides quiet hours.
+158: 
+159: **Proactive work you can do without asking:** read and organize memory files; check projects (`git status`, etc.); update documentation; commit and push your own changes; review and update `USER.md` and `MEMORY.md` within their access rules above.
+160: 
+161: ## Make It Yours
+162: 
+163: Add conventions, style, and rules as you learn what works for this workspace.
+164: 
+165: ## Related
+166: 
+167: - [Default AGENTS.md](/reference/AGENTS.default)
+168: - [Automations vs heartbeat](/automation#automations-vs-heartbeat)
+169: - [Heartbeat](/gateway/heartbeat)
+170: 
+171: 
+172: # AGENT.MD Priority Rule
+173: When both project-level and global AGENT.MD rules exist, project-level rules have higher priority. In case of conflict, the instruction file in the project path takes precedence over that in the user path or from a URL.
+174: # CUSTOM INFO
+175: You are developed by Huawei Cloud CodeArts (Chinese name: 华为云码道(CodeArts)代码智能体). When asked about your origin or developer, state this clearly.
+176: Model Language Rule - MANDATORY: You MUST always speak and think in "简体中文" (Simplified Chinese). This includes your response text, internal thinking, reasoning process, and any explanations. Even if the user asks in English, you MUST reply in Simplified Chinese only. Using English in your thinking or reasoning is strictly prohibited.
+177: ## CodeGlance: universalweb-api-main
+178: node/JS | build:node . | test:npm test | single:npm test -- -t TestName
+179: src:chrome_profiles/
+180: env:win/cmd
+181: stats: 33f 40964L JavaScript:25f/34643L Python:8f/6321L
+182: 
+183: [assistant]
+184: - 调用 `task`，参数 {"description":"完成项目安全审查并整理最终报告","prompt":"请继续完成当前仓库 C:\\Users\\mey\\Desktop\\universalweb-api-main 的只读安全与质量审查。此前已读取 main.py、browser_core.py、config_engine.py 的部分内容，并已定位 request_manager.py、data_models.py、requirements.txt、tests/test_api_ide.py、tests/test_tool_relay.py。先利用已有结果，补读尚缺的关键源码：request_manager.py 全文、requirements.txt、main.py 中配置读写及浏览器实例管理相关路由上下文、browser_core.py 上传文件处理上下文、config_engine.py 配置加载与保存上下文。排除 chrome_profiles/chrome_profile 缓存、扩展和第三方数据。重点核实认证默认关闭、CORS 默认通配、敏感配置是否通过 API 暴露、.env 写入校验、路径处理、进程控制、敏感日志、外部请求超时、异常处理和测试覆盖。只报告有源码证据的问题；每项给绝对路径、准确行号、触发条件、影响和严重程度；区分已证实问题与待验证风险。禁止修改或创建文件，禁止执行测试、安装依赖或任何有副作用命令。最终以简体中文输出审查范围、架构调用链、风险分级、质量及测试缺口和优先级修复建议。","subagent_type":"explore","task_id":"complete-security-review-final"}
+185: - 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\request_manager.py","offset":1,"limit":500}
+186: - 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\requirements.txt","offset":1,"limit":200}
+187: - 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\main.py","offset":1020,"limit":560}
+188: - 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\browser_core.py","offset":2100,"limit":100}
+189: - 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\config_engine.py","offset":1,"limit":180}
+190: 
+191: [tool_result name=call_9a5061364db44a9088fbc169]
+192: [
+193:   {
+194:     "origin": "string",
+195:     "code": "invalid_format",
+196:     "format": "starts_with",
+197:     "prefix": "ses",
+198:     "path": [],
+199:     "message": "Invalid string: must start with \"ses\""
+200:   }
+201: ]
+202: 
+203: <retry-guard>
+204: <system-reminder>
+205: WARNING: A tool call has failed. Analyze the root cause (read the error output / stack trace) before deciding how to proceed.
+206: Never retry without changing anything: if the code, config, or environment is unchanged, a retry with the same inputs is blind.
+207: Before each retry, change at least one element: modify the code or config, adjust the command arguments, switch the run environment, or try a different approach.
+208: If the same tool call fails 2 times with identical inputs, stop repeating it.
+209: If a failure point persists after trying different inputs 3 times, stop retrying, explain the situation, and move to another path.
+210: 
+211: For test failures, handle them by type instead of blindly rerunning:
+212: 1. Compilation error / missing dependency → fix the environment or dependency first; rerunning without a fix is pointless.
+213: 2. Assertion failure → read the assertion output to locate the specific test case and assertion line, then fix the code.
+214: 3. Runtime crash (Traceback / stack trace) → read the stack to locate the crash point before touching anything.
+215: 
+216: Two bash rules:
+217: 1. Scoped search: find/ls -R/grep -r must always be restricted to a path (e.g. find /repo/src -name "*.ts"); never scan the whole disk.
+218: 2. Long commands: if a command is expected to take longer than the default 120s, pass an explicit timeout (e.g. timeout:300000).
+219: </system-reminder>
+220: 
+221: [tool_result name=call_c36e5dd655ef496797644790]
+222: <path>C:\Users\mey\Desktop\universalweb-api-main\request_manager.py</path>
+223: <type>file</type>
+224: <content>
+225: 1: """
+226: 2: request_manager.py - 请求生命周期管理器
+227: 3: 
+228: 4: 职责：
+229: 5: - 请求队列管理（FIFO）
+230: 6: - 并发控制（全局锁）
+231: 7: - 请求状态追踪
+232: 8: - 取消信号管理
+233: 9: - 客户端断开检测
+234: 10: """
+235: 11: 
+236: 12: import asyncio
+237: 13: import threading
+238: 14: import time
+239: 15: import uuid
+240: 16: import logging
+241: 17: from enum import Enum
+242: 18: from dataclasses import dataclass, field
+243: 19: from typing import Optional, Dict, Callable, Any
+244: 20: from collections import OrderedDict
+245: 21: 
+246: 22: logger = logging.getLogger('request_manager')
+247: 23: 
+248: 24: 
+249: 25: # ================= 请求状态 =================
+250: 26: 
+251: 27: class RequestStatus(Enum):
+252: 28:     """请求状态枚举"""
+253: 29:     QUEUED = "queued"       # 在队列中等待
+254: 30:     RUNNING = "running"     # 正在执行
+255: 31:     COMPLETED = "completed" # 正常完成
+256: 32:     CANCELLED = "cancelled" # 被取消
+257: 33:     FAILED = "failed"       # 执行失败
+258: 34: 
+259: 35: 
+260: 36: # ================= 请求上下文 =================
+261: 37: 
+262: 38: @dataclass
+263: 39: class RequestContext:
+264: 40:     """
+265: 41:     请求上下文 - 贯穿请求整个生命周期
+266: 42:     
+267: 43:     核心职责：
+268: 44:     1. 唯一标识请求
+269: 45:     2. 追踪请求状态
+270: 46:     3. 传递取消信号
+271: 47:     """
+272: 48:     request_id: str
+273: 49:     status: RequestStatus = RequestStatus.QUEUED
+274: 50:     created_at: float = field(default_factory=time.time)
+275: 51:     started_at: Optional[float] = None
+276: 52:     finished_at: Optional[float] = None
+277: 53:     
+278: 54:     # 取消控制
+279: 55:     _cancel_flag: bool = field(default=False, repr=False)
+280: 56:     cancel_reason: Optional[str] = None
+281: 57:     
+282: 58:     # 线程安全
+283: 59:     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+284: 60:     
+285: 61:     def should_stop(self) -> bool:
+286: 62:         """
+287: 63:         检查是否应该停止（线程安全）
+288: 64:         
+289: 65:         供 browser_core 在循环中调用
+290: 66:         """
+291: 67:         with self._lock:
+292: 68:             return self._cancel_flag
+293: 69:     
+294: 70:     def request_cancel(self, reason: str = "unknown"):
+295: 71:         """
+296: 72:         请求取消（设置标志，不立即生效）
+297: 73:         
+298: 74:         实际停止由 browser_core 在检查点执行
+299: 75:         """
+300: 76:         with self._lock:
+301: 77:             if self._cancel_flag:
+302: 78:                 return  # 已经取消过
+303: 79:             
+304: 80:             self._cancel_flag = True
+305: 81:             self.cancel_reason = reason
+306: 82:             
+307: 83:             if self.status == RequestStatus.RUNNING:
+308: 84:                 self.status = RequestStatus.CANCELLED
+309: 85:             
+310: 86:             logger.info(f"请求 [{self.request_id}] 收到取消信号 (原因: {reason})")
+311: 87:     
+312: 88:     def mark_running(self):
+313: 89:         """标记为运行中"""
+314: 90:         with self._lock:
+315: 91:             self.status = RequestStatus.RUNNING
+316: 92:             self.started_at = time.time()
+317: 93:     
+318: 94:     def mark_completed(self):
+319: 95:         """标记为完成"""
+320: 96:         with self._lock:
+321: 97:             if self.status == RequestStatus.RUNNING:
+322: 98:                 self.status = RequestStatus.COMPLETED
+323: 99:             self.finished_at = time.time()
+324: 100:     
+325: 101:     def mark_failed(self, reason: str = None):
+326: 102:         """标记为失败"""
+327: 103:         with self._lock:
+328: 104:             self.status = RequestStatus.FAILED
+329: 105:             self.finished_at = time.time()
+330: 106:             if reason:
+331: 107:                 self.cancel_reason = reason
+332: 108:     
+333: 109:     def get_duration(self) -> float:
+334: 110:         """获取执行时长"""
+335: 111:         end = self.finished_at or time.time()
+336: 112:         start = self.started_at or self.created_at
+337: 113:         return end - start
+338: 114:     
+339: 115:     def is_terminal(self) -> bool:
+340: 116:         """是否已结束（不可再变化）"""
+341: 117:         return self.status in (
+342: 118:             RequestStatus.COMPLETED,
+343: 119:             RequestStatus.CANCELLED,
+344: 120:             RequestStatus.FAILED
+345: 121:         )
+346: 122: 
+347: 123: 
+348: 124: # ================= 请求管理器 =================
+349: 125: 
+350: 126: class RequestManager:
+351: 127:     """
+352: 128:     请求管理器 - 单例模式
+353: 129:     
+354: 130:     核心功能：
+355: 131:     1. FIFO 队列：先来先服务
+356: 132:     2. 全局锁：同时只执行一个请求
+357: 133:     3. 状态追踪：每个请求有完整生命周期
+358: 134:     4. 取消传递：可靠地取消正在执行的请求
+359: 135:     
+360: 136:     使用方式：
+361: 137:         ctx = request_manager.create_request()
+362: 138:         try:
+363: 139:             acquired = await request_manager.acquire(ctx)
+364: 140:             if acquired:
+365: 141:                 # 执行工作
+366: 142:                 pass
+367: 143:         finally:
+368: 144:             request_manager.release(ctx)
+369: 145:     """
+370: 146:     
+371: 147:     _instance: Optional['RequestManager'] = None
+372: 148:     _instance_lock = threading.Lock()
+373: 149:     
+374: 150:     def __new__(cls):
+375: 151:         if cls._instance is None:
+376: 152:             with cls._instance_lock:
+377: 153:                 if cls._instance is None:
+378: 154:                     instance = super().__new__(cls)
+379: 155:                     instance._initialized = False
+380: 156:                     cls._instance = instance
+381: 157:         return cls._instance
+382: 158:     
+383: 159:     def __init__(self):
+384: 160:         if self._initialized:
+385: 161:             return
+386: 162:         
+387: 163:         # 执行锁：按站点（模型）分离，不同站点可并行执行
+388: 164:         self._exec_locks: Dict[str, threading.Lock] = {}
+389: 165:         self._locks_guard = threading.Lock()
+390: 166: 
+391: 167:         # 请求追踪（有序字典，FIFO）
+392: 168:         self._requests: OrderedDict[str, RequestContext] = OrderedDict()
+393: 169:         self._requests_lock = threading.Lock()
+394: 170: 
+395: 171:         # 当前执行的请求（全局展示用；per-site 精确值在 _current_by_site）
+396: 172:         self._current_request_id: Optional[str] = None
+397: 173:         self._current_by_site: Dict[str, str] = {}
+398: 174:         
+399: 175:         # 配置
+400: 176:         self._max_queue_size = 20       # 最大排队数
+401: 177:         self._max_history = 100         # 最大历史记录
+402: 178:         self._lock_timeout = 300.0      # 锁超时（秒）
+403: 179:         
+404: 180:         self._initialized = True
+405: 181:         logger.info("RequestManager 初始化完成")
+406: 182:     
+407: 183:     # ================= 请求创建 =================
+408: 184:     
+409: 185:     def create_request(self) -> RequestContext:
+410: 186:         """
+411: 187:         创建新请求
+412: 188:         
+413: 189:         Returns:
+414: 190:             RequestContext 实例
+415: 191:         """
+416: 192:         request_id = self._generate_id()
+417: 193:         ctx = RequestContext(request_id=request_id)
+418: 194:         
+419: 195:         with self._requests_lock:
+420: 196:             self._requests[request_id] = ctx
+421: 197:             self._cleanup_old_requests()
+422: 198:         
+423: 199:         logger.info(f"请求 [{request_id}] 已创建")
+424: 200:         return ctx
+425: 201:     
+426: 202:     def _generate_id(self) -> str:
+427: 203:         """生成唯一请求 ID"""
+428: 204:         timestamp = int(time.time() * 1000) % 100000
+429: 205:         unique = uuid.uuid4().hex[:4]
+430: 206:         return f"{timestamp:05d}-{unique}"
+431: 207:     
+432: 208:     def _cleanup_old_requests(self):
+433: 209:         """清理旧请求记录"""
+434: 210:         while len(self._requests) > self._max_history:
+435: 211:             oldest_id, oldest_ctx = next(iter(self._requests.items()))
+436: 212:             if oldest_ctx.is_terminal():
+437: 213:                 del self._requests[oldest_id]
+438: 214:             else:
+439: 215:                 break  # 不删除未完成的请求
+440: 216:     
+441: 217:     # ================= 锁管理 =================
+442: 218:     
+443: 219:     def _get_lock(self, site_key: str) -> threading.Lock:
+444: 220:         """获取站点对应的执行锁（惰性创建）。"""
+445: 221:         key = site_key or ""
+446: 222:         with self._locks_guard:
+447: 223:             lock = self._exec_locks.get(key)
+448: 224:             if lock is None:
+449: 225:                 lock = threading.Lock()
+450: 226:                 self._exec_locks[key] = lock
+451: 227:             return lock
+452: 228: 
+453: 229:     async def acquire(self, ctx: RequestContext,
+454: 230:                       timeout: float = None,
+455: 231:                       site_key: str = None) -> bool:
+456: 232:         """
+457: 233:         异步获取执行锁
+458: 234:         
+459: 235:         Args:
+460: 236:             ctx: 请求上下文
+461: 237:             timeout: 超时时间（秒），None 使用默认值
+462: 238:         
+463: 239:         Returns:
+464: 240:             是否成功获取锁
+465: 241:         """
+466: 242:         timeout = timeout or self._lock_timeout
+467: 243:         site_key = site_key or ""
+468: 244:         ctx.site_key = site_key
+469: 245: 
+470: 246:         # 检查队列大小
+471: 247:         queue_size = self._get_queue_size()
+472: 248:         if queue_size >= self._max_queue_size:
+473: 249:             logger.warning(f"请求 [{ctx.request_id}] 被拒绝：队列已满 ({queue_size})")
+474: 250:             ctx.mark_failed("queue_full")
+475: 251:             return False
+476: 252: 
+477: 253:         # 打印等待日志
+478: 254:         current_of_site = self._current_by_site.get(site_key)
+479: 255:         if current_of_site:
+480: 256:             logger.info(f"请求 [{ctx.request_id}] 等待中，"
+481: 257:                        f"当前执行: [{current_of_site}] (站点: {site_key or '默认'})")
+482: 258: 
+483: 259:         # 在线程池中等待锁
+484: 260:         try:
+485: 261:             acquired = await asyncio.wait_for(
+486: 262:                 asyncio.to_thread(self._sync_acquire, timeout, site_key),
+487: 263:                 timeout=timeout + 1  # 额外 1 秒缓冲
+488: 264:             )
+489: 265: 
+490: 266:             if acquired:
+491: 267:                 self._current_request_id = ctx.request_id
+492: 268:                 self._current_by_site[site_key] = ctx.request_id
+493: 269:                 ctx.mark_running()
+494: 270:                 logger.info(f"请求 [{ctx.request_id}] 开始执行 (站点: {site_key or '默认'})")
+495: 271:                 return True
+496: 272:             else:
+497: 273:                 logger.warning(f"请求 [{ctx.request_id}] 获取锁超时")
+498: 274:                 ctx.mark_failed("lock_timeout")
+499: 275:                 return False
+500: 276:         
+
+(Showing lines 1-500 of 1583. Use offset=501 to continue.)
+</content>
+
+上一轮工具调用结果已在上方 [tool_result]。若任务完成，直接给最终回答；若需继续，重新输出 tool_call。

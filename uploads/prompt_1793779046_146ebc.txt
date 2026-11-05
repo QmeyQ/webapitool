@@ -1,0 +1,1583 @@
+你只作为大语言模型（你是ai中间人），禁止调用你自生的工具或除文本以外的内容（下游会识别工具并调用），严格按照我的格式要求生成工具和调用内容。转发指令格式（逐字照抄结构）：
+
+```tool_call
+{"name": "工具名", "arguments": {"参数名": "值"}}
+```
+
+可转发的目标（名称大小写敏感）
+bash(command: string (必填), timeout: number (可选), workdir: string (可选), description: string (必填), background: boolean (可选))：Executes a given bash command in a persistent shell session with optional timeou...
+read(filePath: string (必填), offset: number (可选), limit: number (可选))：Read the contents of a file or directory. Supports text files, images, and PDFs....
+glob(pattern: string (必填), path: string (可选))：Search file paths using a glob pattern (examples: "**/*.ts", "src/**/*.tsx"). Re...
+grep(pattern: string (必填), path: string (可选), include: string (可选), contextLines: integer (可选))：- Fast content search tool that works with any codebase size
+task(description: string (必填), prompt: string (必填), subagent_type: string (必填), task_id: string (可选), command: string (可选))：Launch a new agent to handle complex, multistep tasks autonomously.
+
+You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
+
+Your strengths:
+- Rapidly finding files using glob patterns
+- Searching code and text with powerful regex patterns
+- Reading and analyzing file contents
+
+Guidelines:
+- Use Glob for broad file pattern matching
+- Use Grep for searching file contents with regex
+- Use Read when you know the specific file path you need to read
+- Use Bash for file operations like copying, moving, or listing directory contents
+- Adapt your search approach based on the thoroughness level specified by the caller
+- Return file paths as absolute paths in your final response
+- For clear communication, avoid using emojis
+- Do not create any files, or run bash commands that modify the user's system state in any way
+
+Complete the user's search request efficiently and report your findings clearly.
+
+You are powered by the model named chatgpt.com. The exact model ID is openai-71c4177b3f5980cd/chatgpt.com
+Here is some useful information about the environment you are running in:
+<env>
+  Working directory: C:\Users\mey\Desktop\universalweb-api-main
+  Workspace root folder: C:\Users\mey\Desktop\universalweb-api-main
+  Is directory a git repo: yes
+  Platform: win32
+  Today's date: Wed Nov 04 2026
+</env>
+<directories>
+  
+</directories>
+Instructions from: C:\Users\mey\Desktop\universalweb-api-main\AGENTS.md
+# AGENTS.md - Your Workspace
+
+Keep workspace conventions here. Personality and tone belong in `SOUL.md`.
+
+## First Run
+
+If `BOOTSTRAP.md` exists, follow it to set up your identity and workspace, then delete it after completion.
+
+## Session Startup
+
+Use runtime-provided startup context first. It may already include `AGENTS.md`, `SOUL.md`, `USER.md`, recent daily memory (`memory/YYYY-MM-DD.md`), and `MEMORY.md` (main session only).
+
+Read startup files again only when:
+
+1. The user explicitly asks.
+2. Needed context is missing.
+3. A deeper follow-up read is needed.
+
+## Memory
+
+Use files for continuity across sessions:
+
+- **Daily notes:** `memory/YYYY-MM-DD.md` holds raw logs; create `memory/` if needed.
+- **User model:** `USER.md` holds stable preferences and profile facts as active directives.
+- **Long-term:** `MEMORY.md` holds durable non-profile facts and decisions.
+
+Capture decisions, context, and things to remember. Skip secrets unless asked to keep them.
+
+### USER.md - Durable User Directives
+
+- Write stable preferences, communication style, relationships, and active-project context as imperative directives such as `Always`, `Never`, or `Prefer`.
+- Precede each directive with `<!-- observed: YYYY-MM-DD | status: active -->`.
+- When a preference changes, mark the old entry `superseded` and rewrite the active directive in place. Never leave contradictory active directives.
+
+### MEMORY.md - Durable Facts and Decisions
+
+- Load **only in the main session** (direct chats with your human). Never load it in shared contexts (Discord, group chats, sessions with other people).
+- Read, edit, and update it freely in main sessions.
+- Save significant events, decisions, lessons, and durable non-profile facts as a curated summary, not raw logs.
+
+### Write It Down
+
+Before writing memory files, read them first. Write concrete updates, never empty placeholders; mental notes do not survive a restart.
+
+- Asked to "remember this": update the daily note or relevant file.
+- Learned a lesson: update `AGENTS.md` or the relevant skill.
+- Made a mistake: document it so you do not repeat it.
+
+### Memory Maintenance
+
+Every few days, use a scheduled automation to review recent daily notes. Fold stable directives into `USER.md` and durable non-profile facts into `MEMORY.md`; keep `MEMORY.md` maintenance confined to main sessions. Remove outdated entries so the curated files do not become raw logs.
+
+## Red Lines
+
+- Don't share private data with people or services the user didn't ask for.
+- Confirm destructive or irreversible actions the user didn't ask for.
+- Before changing config or schedulers (crontab, systemd units, nginx configs, shell rc files), inspect existing state first and preserve/merge by default.
+- Prefer `trash` over `rm` - recoverable beats gone forever.
+
+## Existing Solutions Preflight
+
+Before proposing or building a custom solution, briefly check existing open-source projects, maintained libraries, OpenClaw plugins, or free platforms. Prefer an adequate existing option. Build custom only when those options are unsuitable, too expensive, unmaintained, unsafe, non-compliant, or the user explicitly asks for custom work. Recommend paid services only with explicit spend approval.
+
+## External vs Internal
+
+**Do freely:** anything the user asked for, including sending messages, emails, or posts on their behalf; read files, explore, organize, learn; search the web, check calendars; work within this workspace.
+
+**Ask first:** public or outbound actions the user did not request.
+
+## Group Chats
+
+Participate as yourself by default. When the user asks you to send or post on their behalf, follow that request and share only the information intended for that audience.
+
+### Know When to Speak
+
+**Respond when:** directly mentioned or asked; adding clear value; humor fits; correcting important misinformation; summarizing when asked.
+
+**Stay silent when:** people are casually chatting; someone already answered; you would only say "yeah" or "nice"; the conversation flows without you; a reply would interrupt it.
+
+Send one thoughtful reply instead of several fragments. Do not respond multiple times to the same message with different reactions.
+
+### React Like a Human
+
+Where reactions are supported, use them to acknowledge without interrupting, express humor or interest, or answer yes/no. Use at most one reaction per message.
+
+## Tools
+
+Use the relevant skill for tool procedures. Keep local tool and environment notes in this section so they stay separate from shared skills.
+
+### Local notes
+
+Record camera names, SSH hosts and users, preferred voices and speakers, and device nicknames here.
+
+**Voice storytelling:** when `sag` (ElevenLabs TTS) is available, use voice for stories, movie summaries, and storytime.
+
+**Platform formatting:**
+
+- On Discord and WhatsApp, use bullet lists instead of markdown tables.
+- On Discord, wrap multiple links in `<>` to suppress embeds (`<https://example.com>`).
+- On WhatsApp, use **bold** or CAPS instead of headers.
+
+## Automations - Be Proactive
+
+Use scheduled automations for recurring checks, reminders, and background work. Keep checklists and check timing in each automation's scratch. Keep it small; do not create a separate state file. Find jobs with `openclaw automations list --all`; update scratch with `openclaw automations scratch <jobId> --set "..."`.
+
+**Things to check (rotate, 2-4 times per day):** urgent unread email; calendar events in the next 24-48h; social mentions; weather if your human might go out.
+
+**Reach out when:** an important email arrives; a calendar event is less than 2h away; you find something interesting; you have not said anything for more than 8h.
+
+**Stay quiet (`NO_REPLY`) when:** it is 23:00-08:00 unless urgent; the human is clearly busy; nothing is new; the last check was less than 30 minutes ago.
+
+When reach-out and quiet conditions both apply, stay quiet. Only an urgent item overrides quiet hours.
+
+**Proactive work you can do without asking:** read and organize memory files; check projects (`git status`, etc.); update documentation; commit and push your own changes; review and update `USER.md` and `MEMORY.md` within their access rules above.
+
+## Make It Yours
+
+Add conventions, style, and rules as you learn what works for this workspace.
+
+## Related
+
+- [Default AGENTS.md](/reference/AGENTS.default)
+- [Automations vs heartbeat](/automation#automations-vs-heartbeat)
+- [Heartbeat](/gateway/heartbeat)
+
+
+# AGENT.MD Priority Rule
+When both project-level and global AGENT.MD rules exist, project-level rules have higher priority. In case of conflict, the instruction file in the project path takes precedence over that in the user path or from a URL.
+# CUSTOM INFO
+You are developed by Huawei Cloud CodeArts (Chinese name: 华为云码道(CodeArts)代码智能体). When asked about your origin or developer, state this clearly.
+Model Language Rule - MANDATORY: You MUST always speak and think in "简体中文" (Simplified Chinese). This includes your response text, internal thinking, reasoning process, and any explanations. Even if the user asks in English, you MUST reply in Simplified Chinese only. Using English in your thinking or reasoning is strictly prohibited.
+## CodeGlance: universalweb-api-main
+node/JS | build:node . | test:npm test | single:npm test -- -t TestName
+src:chrome_profiles/
+env:win/cmd
+stats: 33f 40964L JavaScript:25f/34643L Python:8f/6321L
+
+[assistant]
+- 调用 `task`，参数 {"description":"完成项目安全审查并整理最终报告","prompt":"请继续完成当前仓库 C:\\Users\\mey\\Desktop\\universalweb-api-main 的只读安全与质量审查。此前已读取 main.py、browser_core.py、config_engine.py 的部分内容，并已定位 request_manager.py、data_models.py、requirements.txt、tests/test_api_ide.py、tests/test_tool_relay.py。先利用已有结果，补读尚缺的关键源码：request_manager.py 全文、requirements.txt、main.py 中配置读写及浏览器实例管理相关路由上下文、browser_core.py 上传文件处理上下文、config_engine.py 配置加载与保存上下文。排除 chrome_profiles/chrome_profile 缓存、扩展和第三方数据。重点核实认证默认关闭、CORS 默认通配、敏感配置是否通过 API 暴露、.env 写入校验、路径处理、进程控制、敏感日志、外部请求超时、异常处理和测试覆盖。只报告有源码证据的问题；每项给绝对路径、准确行号、触发条件、影响和严重程度；区分已证实问题与待验证风险。禁止修改或创建文件，禁止执行测试、安装依赖或任何有副作用命令。最终以简体中文输出审查范围、架构调用链、风险分级、质量及测试缺口和优先级修复建议。","subagent_type":"explore","task_id":"complete-security-review-final"}
+- 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\request_manager.py","offset":1,"limit":500}
+- 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\requirements.txt","offset":1,"limit":200}
+- 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\main.py","offset":1020,"limit":560}
+- 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\browser_core.py","offset":2100,"limit":100}
+- 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\config_engine.py","offset":1,"limit":180}
+
+[tool_result name=call_9a5061364db44a9088fbc169]
+[
+  {
+    "origin": "string",
+    "code": "invalid_format",
+    "format": "starts_with",
+    "prefix": "ses",
+    "path": [],
+    "message": "Invalid string: must start with \"ses\""
+  }
+]
+
+<retry-guard>
+<system-reminder>
+WARNING: A tool call has failed. Analyze the root cause (read the error output / stack trace) before deciding how to proceed.
+Never retry without changing anything: if the code, config, or environment is unchanged, a retry with the same inputs is blind.
+Before each retry, change at least one element: modify the code or config, adjust the command arguments, switch the run environment, or try a different approach.
+If the same tool call fails 2 times with identical inputs, stop repeating it.
+If a failure point persists after trying different inputs 3 times, stop retrying, explain the situation, and move to another path.
+
+For test failures, handle them by type instead of blindly rerunning:
+1. Compilation error / missing dependency → fix the environment or dependency first; rerunning without a fix is pointless.
+2. Assertion failure → read the assertion output to locate the specific test case and assertion line, then fix the code.
+3. Runtime crash (Traceback / stack trace) → read the stack to locate the crash point before touching anything.
+
+Two bash rules:
+1. Scoped search: find/ls -R/grep -r must always be restricted to a path (e.g. find /repo/src -name "*.ts"); never scan the whole disk.
+2. Long commands: if a command is expected to take longer than the default 120s, pass an explicit timeout (e.g. timeout:300000).
+</system-reminder>
+
+[tool_result name=call_c36e5dd655ef496797644790]
+<path>C:\Users\mey\Desktop\universalweb-api-main\request_manager.py</path>
+<type>file</type>
+<content>
+1: """
+2: request_manager.py - 请求生命周期管理器
+3: 
+4: 职责：
+5: - 请求队列管理（FIFO）
+6: - 并发控制（全局锁）
+7: - 请求状态追踪
+8: - 取消信号管理
+9: - 客户端断开检测
+10: """
+11: 
+12: import asyncio
+13: import threading
+14: import time
+15: import uuid
+16: import logging
+17: from enum import Enum
+18: from dataclasses import dataclass, field
+19: from typing import Optional, Dict, Callable, Any
+20: from collections import OrderedDict
+21: 
+22: logger = logging.getLogger('request_manager')
+23: 
+24: 
+25: # ================= 请求状态 =================
+26: 
+27: class RequestStatus(Enum):
+28:     """请求状态枚举"""
+29:     QUEUED = "queued"       # 在队列中等待
+30:     RUNNING = "running"     # 正在执行
+31:     COMPLETED = "completed" # 正常完成
+32:     CANCELLED = "cancelled" # 被取消
+33:     FAILED = "failed"       # 执行失败
+34: 
+35: 
+36: # ================= 请求上下文 =================
+37: 
+38: @dataclass
+39: class RequestContext:
+40:     """
+41:     请求上下文 - 贯穿请求整个生命周期
+42:     
+43:     核心职责：
+44:     1. 唯一标识请求
+45:     2. 追踪请求状态
+46:     3. 传递取消信号
+47:     """
+48:     request_id: str
+49:     status: RequestStatus = RequestStatus.QUEUED
+50:     created_at: float = field(default_factory=time.time)
+51:     started_at: Optional[float] = None
+52:     finished_at: Optional[float] = None
+53:     
+54:     # 取消控制
+55:     _cancel_flag: bool = field(default=False, repr=False)
+56:     cancel_reason: Optional[str] = None
+57:     
+58:     # 线程安全
+59:     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+60:     
+61:     def should_stop(self) -> bool:
+62:         """
+63:         检查是否应该停止（线程安全）
+64:         
+65:         供 browser_core 在循环中调用
+66:         """
+67:         with self._lock:
+68:             return self._cancel_flag
+69:     
+70:     def request_cancel(self, reason: str = "unknown"):
+71:         """
+72:         请求取消（设置标志，不立即生效）
+73:         
+74:         实际停止由 browser_core 在检查点执行
+75:         """
+76:         with self._lock:
+77:             if self._cancel_flag:
+78:                 return  # 已经取消过
+79:             
+80:             self._cancel_flag = True
+81:             self.cancel_reason = reason
+82:             
+83:             if self.status == RequestStatus.RUNNING:
+84:                 self.status = RequestStatus.CANCELLED
+85:             
+86:             logger.info(f"请求 [{self.request_id}] 收到取消信号 (原因: {reason})")
+87:     
+88:     def mark_running(self):
+89:         """标记为运行中"""
+90:         with self._lock:
+91:             self.status = RequestStatus.RUNNING
+92:             self.started_at = time.time()
+93:     
+94:     def mark_completed(self):
+95:         """标记为完成"""
+96:         with self._lock:
+97:             if self.status == RequestStatus.RUNNING:
+98:                 self.status = RequestStatus.COMPLETED
+99:             self.finished_at = time.time()
+100:     
+101:     def mark_failed(self, reason: str = None):
+102:         """标记为失败"""
+103:         with self._lock:
+104:             self.status = RequestStatus.FAILED
+105:             self.finished_at = time.time()
+106:             if reason:
+107:                 self.cancel_reason = reason
+108:     
+109:     def get_duration(self) -> float:
+110:         """获取执行时长"""
+111:         end = self.finished_at or time.time()
+112:         start = self.started_at or self.created_at
+113:         return end - start
+114:     
+115:     def is_terminal(self) -> bool:
+116:         """是否已结束（不可再变化）"""
+117:         return self.status in (
+118:             RequestStatus.COMPLETED,
+119:             RequestStatus.CANCELLED,
+120:             RequestStatus.FAILED
+121:         )
+122: 
+123: 
+124: # ================= 请求管理器 =================
+125: 
+126: class RequestManager:
+127:     """
+128:     请求管理器 - 单例模式
+129:     
+130:     核心功能：
+131:     1. FIFO 队列：先来先服务
+132:     2. 全局锁：同时只执行一个请求
+133:     3. 状态追踪：每个请求有完整生命周期
+134:     4. 取消传递：可靠地取消正在执行的请求
+135:     
+136:     使用方式：
+137:         ctx = request_manager.create_request()
+138:         try:
+139:             acquired = await request_manager.acquire(ctx)
+140:             if acquired:
+141:                 # 执行工作
+142:                 pass
+143:         finally:
+144:             request_manager.release(ctx)
+145:     """
+146:     
+147:     _instance: Optional['RequestManager'] = None
+148:     _instance_lock = threading.Lock()
+149:     
+150:     def __new__(cls):
+151:         if cls._instance is None:
+152:             with cls._instance_lock:
+153:                 if cls._instance is None:
+154:                     instance = super().__new__(cls)
+155:                     instance._initialized = False
+156:                     cls._instance = instance
+157:         return cls._instance
+158:     
+159:     def __init__(self):
+160:         if self._initialized:
+161:             return
+162:         
+163:         # 执行锁：按站点（模型）分离，不同站点可并行执行
+164:         self._exec_locks: Dict[str, threading.Lock] = {}
+165:         self._locks_guard = threading.Lock()
+166: 
+167:         # 请求追踪（有序字典，FIFO）
+168:         self._requests: OrderedDict[str, RequestContext] = OrderedDict()
+169:         self._requests_lock = threading.Lock()
+170: 
+171:         # 当前执行的请求（全局展示用；per-site 精确值在 _current_by_site）
+172:         self._current_request_id: Optional[str] = None
+173:         self._current_by_site: Dict[str, str] = {}
+174:         
+175:         # 配置
+176:         self._max_queue_size = 20       # 最大排队数
+177:         self._max_history = 100         # 最大历史记录
+178:         self._lock_timeout = 300.0      # 锁超时（秒）
+179:         
+180:         self._initialized = True
+181:         logger.info("RequestManager 初始化完成")
+182:     
+183:     # ================= 请求创建 =================
+184:     
+185:     def create_request(self) -> RequestContext:
+186:         """
+187:         创建新请求
+188:         
+189:         Returns:
+190:             RequestContext 实例
+191:         """
+192:         request_id = self._generate_id()
+193:         ctx = RequestContext(request_id=request_id)
+194:         
+195:         with self._requests_lock:
+196:             self._requests[request_id] = ctx
+197:             self._cleanup_old_requests()
+198:         
+199:         logger.info(f"请求 [{request_id}] 已创建")
+200:         return ctx
+201:     
+202:     def _generate_id(self) -> str:
+203:         """生成唯一请求 ID"""
+204:         timestamp = int(time.time() * 1000) % 100000
+205:         unique = uuid.uuid4().hex[:4]
+206:         return f"{timestamp:05d}-{unique}"
+207:     
+208:     def _cleanup_old_requests(self):
+209:         """清理旧请求记录"""
+210:         while len(self._requests) > self._max_history:
+211:             oldest_id, oldest_ctx = next(iter(self._requests.items()))
+212:             if oldest_ctx.is_terminal():
+213:                 del self._requests[oldest_id]
+214:             else:
+215:                 break  # 不删除未完成的请求
+216:     
+217:     # ================= 锁管理 =================
+218:     
+219:     def _get_lock(self, site_key: str) -> threading.Lock:
+220:         """获取站点对应的执行锁（惰性创建）。"""
+221:         key = site_key or ""
+222:         with self._locks_guard:
+223:             lock = self._exec_locks.get(key)
+224:             if lock is None:
+225:                 lock = threading.Lock()
+226:                 self._exec_locks[key] = lock
+227:             return lock
+228: 
+229:     async def acquire(self, ctx: RequestContext,
+230:                       timeout: float = None,
+231:                       site_key: str = None) -> bool:
+232:         """
+233:         异步获取执行锁
+234:         
+235:         Args:
+236:             ctx: 请求上下文
+237:             timeout: 超时时间（秒），None 使用默认值
+238:         
+239:         Returns:
+240:             是否成功获取锁
+241:         """
+242:         timeout = timeout or self._lock_timeout
+243:         site_key = site_key or ""
+244:         ctx.site_key = site_key
+245: 
+246:         # 检查队列大小
+247:         queue_size = self._get_queue_size()
+248:         if queue_size >= self._max_queue_size:
+249:             logger.warning(f"请求 [{ctx.request_id}] 被拒绝：队列已满 ({queue_size})")
+250:             ctx.mark_failed("queue_full")
+251:             return False
+252: 
+253:         # 打印等待日志
+254:         current_of_site = self._current_by_site.get(site_key)
+255:         if current_of_site:
+256:             logger.info(f"请求 [{ctx.request_id}] 等待中，"
+257:                        f"当前执行: [{current_of_site}] (站点: {site_key or '默认'})")
+258: 
+259:         # 在线程池中等待锁
+260:         try:
+261:             acquired = await asyncio.wait_for(
+262:                 asyncio.to_thread(self._sync_acquire, timeout, site_key),
+263:                 timeout=timeout + 1  # 额外 1 秒缓冲
+264:             )
+265: 
+266:             if acquired:
+267:                 self._current_request_id = ctx.request_id
+268:                 self._current_by_site[site_key] = ctx.request_id
+269:                 ctx.mark_running()
+270:                 logger.info(f"请求 [{ctx.request_id}] 开始执行 (站点: {site_key or '默认'})")
+271:                 return True
+272:             else:
+273:                 logger.warning(f"请求 [{ctx.request_id}] 获取锁超时")
+274:                 ctx.mark_failed("lock_timeout")
+275:                 return False
+276:         
+277:         except asyncio.TimeoutError:
+278:             logger.warning(f"请求 [{ctx.request_id}] 等待超时")
+279:             ctx.mark_failed("acquire_timeout")
+280:             return False
+281:         
+282:         except asyncio.CancelledError:
+283:             logger.info(f"请求 [{ctx.request_id}] 在等待时被取消")
+284:             ctx.request_cancel("cancelled_while_waiting")
+285:             raise
+286:     
+287:     def _sync_acquire(self, timeout: float, site_key: str = "") -> bool:
+288:         """同步获取锁（在线程池中执行）"""
+289:         return self._get_lock(site_key).acquire(timeout=timeout)
+290:     
+291:     def release(self, ctx: RequestContext, success: bool = True):
+292:         """
+293:         释放执行锁
+294:         
+295:         Args:
+296:             ctx: 请求上下文
+297:             success: 是否成功完成
+298:         """
+299:         try:
+300:             # 释放该请求站点对应的锁
+301:             site_key = getattr(ctx, "site_key", "") or ""
+302:             lock = self._get_lock(site_key)
+303:             if lock.locked():
+304:                 lock.release()
+305:             self._current_by_site.pop(site_key, None)
+306: 
+307:             # 更新状态
+308:             if self._current_request_id == ctx.request_id:
+309:                 self._current_request_id = None
+310:             
+311:             # 设置最终状态（如果还未设置）
+312:             if ctx.status == RequestStatus.RUNNING:
+313:                 if success:
+314:                     ctx.mark_completed()
+315:                 else:
+316:                     ctx.mark_failed()
+317:             
+318:             # 日志
+319:             duration = ctx.get_duration()
+320:             logger.info(f"请求 [{ctx.request_id}] 结束 "
+321:                        f"(状态: {ctx.status.value}, 耗时: {duration:.2f}s)")
+322:         
+323:         except RuntimeError as e:
+324:             logger.warning(f"释放锁异常: {e}")
+325:     
+326:     # ================= 取消控制 =================
+327:     
+328:     def cancel_request(self, request_id: str, 
+329:                        reason: str = "manual") -> bool:
+330:         """
+331:         取消指定请求
+332:         
+333:         Args:
+334:             request_id: 请求 ID
+335:             reason: 取消原因
+336:         
+337:         Returns:
+338:             是否成功发送取消信号
+339:         """
+340:         with self._requests_lock:
+341:             ctx = self._requests.get(request_id)
+342:         
+343:         if not ctx:
+344:             logger.debug(f"请求 [{request_id}] 不存在")
+345:             return False
+346:         
+347:         if ctx.is_terminal():
+348:             logger.debug(f"请求 [{request_id}] 已结束")
+349:             return False
+350:         
+351:         ctx.request_cancel(reason)
+352:         return True
+353:     
+354:     def cancel_current(self, reason: str = "cancel_current") -> bool:
+355:         """取消当前正在执行的请求"""
+356:         current_id = self._current_request_id
+357:         if current_id:
+358:             return self.cancel_request(current_id, reason)
+359:         return False
+360:     
+361:     # ================= 状态查询 =================
+362:     
+363:     def get_request(self, request_id: str) -> Optional[RequestContext]:
+364:         """获取请求上下文"""
+365:         with self._requests_lock:
+366:             return self._requests.get(request_id)
+367:     
+368:     def is_locked(self) -> bool:
+369:         """检查是否有任意站点锁被占用"""
+370:         with self._locks_guard:
+371:             return any(lock.locked() for lock in self._exec_locks.values())
+372:     
+373:     def get_current_request_id(self) -> Optional[str]:
+374:         """获取当前执行的请求 ID"""
+375:         return self._current_request_id
+376:     
+377:     def _get_queue_size(self) -> int:
+378:         """获取等待中的请求数量"""
+379:         with self._requests_lock:
+380:             return sum(
+381:                 1 for ctx in self._requests.values()
+382:                 if ctx.status == RequestStatus.QUEUED
+383:             )
+384:     
+385:     def get_status(self) -> Dict[str, Any]:
+386:         """获取管理器状态"""
+387:         with self._requests_lock:
+388:             status_counts = {}
+389:             for ctx in self._requests.values():
+390:                 s = ctx.status.value
+391:                 status_counts[s] = status_counts.get(s, 0) + 1
+392:             
+393:             return {
+394:                 "is_locked": self.is_locked(),
+395:                 "current_request": self._current_request_id,
+396:                 "queue_size": status_counts.get("queued", 0),
+397:                 "total_tracked": len(self._requests),
+398:                 "status_counts": status_counts
+399:             }
+400:     
+401:     # ================= 紧急操作 =================
+402:     
+403:     def force_release(self) -> bool:
+404:         """
+405:         强制释放锁（紧急情况使用）
+406:         
+407:         Returns:
+408:             是否执行了释放
+409:         """
+410:         logger.warning("⚠️ 执行强制释放锁")
+411:         
+412:         released = False
+413:         
+414:         # 取消当前请求
+415:         if self._current_request_id:
+416:             ctx = self.get_request(self._current_request_id)
+417:             if ctx:
+418:                 ctx.request_cancel("force_release")
+419:             self._current_request_id = None
+420: 
+421:         with self._locks_guard:
+422:             self._current_by_site.clear()
+423: 
+424:         # 强制释放所有站点锁
+425:         try:
+426:             with self._locks_guard:
+427:                 locks = list(self._exec_locks.values())
+428:             for lock in locks:
+429:                 if lock.locked():
+430:                     lock.release()
+431:                     released = True
+432:         except RuntimeError:
+433:             pass
+434: 
+435:         return released
+436: 
+437: 
+438: # ================= 全局单例 =================
+439: 
+440: request_manager = RequestManager()
+441: 
+442: 
+443: # ================= 辅助函数 =================
+444: 
+445: async def watch_client_disconnect(request, ctx: RequestContext,
+446:                                    check_interval: float = 0.5):
+447:     """
+448:     监控客户端连接状态
+449:     
+450:     在后台运行，检测到断开时设置取消标志
+451:     
+452:     Args:
+453:         request: FastAPI Request 对象
+454:         ctx: 请求上下文
+455:         check_interval: 检查间隔（秒）
+456:     """
+457:     try:
+458:         while not ctx.is_terminal():
+459:             # Starlette 的断开检测
+460:             if await request.is_disconnected():
+461:                 ctx.request_cancel("client_disconnected")
+462:                 logger.info(f"请求 [{ctx.request_id}] 客户端已断开")
+463:                 break
+464:             
+465:             await asyncio.sleep(check_interval)
+466:     
+467:     except asyncio.CancelledError:
+468:         # 正常取消（请求结束时）
+469:         pass
+470:     except Exception as e:
+471:         logger.debug(f"断开检测异常: {e}")
+
+(End of file - total 471 lines)
+</content>
+
+[tool_result name=call_511e91f06e6a4e19859d3d0a]
+<path>C:\Users\mey\Desktop\universalweb-api-main\requirements.txt</path>
+<type>file</type>
+<content>
+1: # ============================================
+2: # Universal Web-to-API - Production
+3: # Python: >=3.9
+4: # ============================================
+5: 
+6: fastapi>=0.100.0,<0.110.0
+7: uvicorn[standard]>=0.23.0,<0.30.0
+8: pydantic>=2.0.0,<3.0.0
+9: DrissionPage>=4.0.0,<5.0.0
+10: beautifulsoup4>=4.12.0
+11: python-dotenv>=1.0.0
+
+(End of file - total 11 lines)
+</content>
+
+[tool_result name=call_6b4937ab97e64764a592a2a8]
+<path>C:\Users\mey\Desktop\universalweb-api-main\main.py</path>
+<type>file</type>
+<content>
+1020:             "created": int(time.time()),
+1021:             "owned_by": "universal-web-api"
+1022:         })
+1023:     return {"object": "list", "data": data}
+1024: 
+1025: 
+1026: # ================= 健康检查 =================
+1027: 
+1028: @app.get("/health")
+1029: async def health_check():
+1030:     try:
+1031:         browser = get_browser(auto_connect=False)
+1032:         browser_health = browser.health_check()
+1033:     except Exception as e:
+1034:         browser_health = {"connected": False, "error": str(e)}
+1035:     
+1036:     # 请求管理器状态
+1037:     rm_status = request_manager.get_status()
+1038:     
+1039:     response = {
+1040:         "service": "healthy",
+1041:         "version": "2.0.0",
+1042:         "browser": browser_health,
+1043:         "request_manager": rm_status,
+1044:         "config": {
+1045:             "sites_loaded": len(config_engine.sites),
+1046:             "auth_enabled": AppConfig.AUTH_ENABLED
+1047:         },
+1048:         "timestamp": int(time.time())
+1049:     }
+1050:     
+1051:     status_code = 200 if browser_health.get("connected") else 503
+1052:     return JSONResponse(content=response, status_code=status_code)
+1053: 
+1054: 
+1055: # ================= 配置管理 API =================
+1056: 
+1057: @app.get("/api/config")
+1058: async def get_config(authenticated: bool = Depends(verify_auth)):
+1059:     try:
+1060:         if os.path.exists(ConfigConstants.CONFIG_FILE):
+1061:             with open(ConfigConstants.CONFIG_FILE, "r", encoding="utf-8") as f:
+1062:                 content = f.read().strip()
+1063:                 if not content:
+1064:                     return {}
+1065:                 return json.loads(content)
+1066:         return {}
+1067:     except json.JSONDecodeError as e:
+1068:         raise HTTPException(status_code=500, detail="配置文件格式错误")
+1069:     except Exception as e:
+1070:         raise HTTPException(status_code=500, detail=str(e))
+1071: 
+1072: 
+1073: @app.post("/api/config")
+1074: async def save_config(
+1075:     request: ConfigUpdateRequest,
+1076:     authenticated: bool = Depends(verify_auth)
+1077: ):
+1078:     try:
+1079:         with open(ConfigConstants.CONFIG_FILE, "w", encoding="utf-8") as f:
+1080:             json.dump(request.config, f, indent=2, ensure_ascii=False)
+1081:         
+1082:         config_engine.reload_config()
+1083:         
+1084:         return {
+1085:             "status": "success",
+1086:             "message": "配置已保存",
+1087:             "sites_count": len(request.config)
+1088:         }
+1089:     
+1090:     except Exception as e:
+1091:         raise HTTPException(status_code=500, detail=str(e))
+1092: 
+1093: 
+1094: @app.delete("/api/config/{domain}")
+1095: async def delete_site_config(
+1096:     domain: str,
+1097:     authenticated: bool = Depends(verify_auth)
+1098: ):
+1099:     success = config_engine.delete_site_config(domain)
+1100:     
+1101:     if success:
+1102:         return {"status": "success", "message": f"已删除: {domain}"}
+1103:     else:
+1104:         raise HTTPException(status_code=404, detail=f"配置不存在: {domain}")
+1105: 
+1106: 
+1107: @app.get("/api/config/{domain}")
+1108: async def get_site_config(
+1109:     domain: str,
+1110:     authenticated: bool = Depends(verify_auth)
+1111: ):
+1112:     if domain in config_engine.sites:
+1113:         return config_engine.sites[domain]
+1114:     else:
+1115:         raise HTTPException(status_code=404, detail=f"配置不存在: {domain}")
+1116: 
+1117: 
+1118: 
+1119: # ================= 系统设置 API =================
+1120: 
+1121: @app.get("/api/settings/env")
+1122: async def get_env_config(authenticated: bool = Depends(verify_auth)):
+1123:     """
+1124:     读取 .env 文件配置
+1125:     """
+1126:     try:
+1127:         env_path = Path(".env")
+1128:         config = {}
+1129:         
+1130:         if env_path.exists():
+1131:             with open(env_path, 'r', encoding='utf-8') as f:
+1132:                 for line in f:
+1133:                     line = line.strip()
+1134:                     
+1135:                     # 跳过注释和空行
+1136:                     if not line or line.startswith('#'):
+1137:                         continue
+1138:                     
+1139:                     # 解析 KEY=VALUE
+1140:                     if '=' not in line:
+1141:                         continue
+1142:                     
+1143:                     key, value = line.split('=', 1)
+1144:                     key = key.strip()
+1145:                     value = value.strip()
+1146:                     
+1147:                     # 类型转换
+1148:                     if value.lower() == 'true':
+1149:                         value = True
+1150:                     elif value.lower() == 'false':
+1151:                         value = False
+1152:                     elif value.isdigit():
+1153:                         value = int(value)
+1154:                     elif re.match(r'^\d+\.\d+$', value):
+1155:                         value = float(value)
+1156:                     
+1157:                     config[key] = value
+1158:         
+1159:         return {"config": config}
+1160:     
+1161:     except Exception as e:
+1162:         logger.error(f"读取环境配置失败: {e}")
+1163:         raise HTTPException(status_code=500, detail=f"读取失败: {str(e)}")
+1164: 
+1165: 
+1166: @app.post("/api/settings/env")
+1167: async def save_env_config(
+1168:     request: Request,
+1169:     authenticated: bool = Depends(verify_auth)
+1170: ):
+1171:     """
+1172:     保存 .env 配置（保留注释结构）
+1173:     """
+1174:     try:
+1175:         data = await request.json()
+1176:         new_config = data.get("config", {})
+1177:         
+1178:         env_path = Path(".env")
+1179:         lines = []
+1180:         
+1181:         # 读取现有文件
+1182:         if env_path.exists():
+1183:             with open(env_path, 'r', encoding='utf-8') as f:
+1184:                 lines = f.readlines()
+1185:         
+1186:         new_lines = []
+1187:         
+1188:         for line in lines:
+1189:             stripped = line.strip()
+1190:             
+1191:             # 保留注释和空行
+1192:             if not stripped or stripped.startswith('#'):
+1193:                 new_lines.append(line)
+1194:                 continue
+1195:             
+1196:             # 处理配置行
+1197:             if '=' in stripped:
+1198:                 key = stripped.split('=', 1)[0].strip()
+1199:                 
+1200:                 if key in new_config:
+1201:                     # 替换值
+1202:                     value = new_config[key]
+1203:                     
+1204:                     # 类型转换
+1205:                     if isinstance(value, bool):
+1206:                         value = 'true' if value else 'false'
+1207:                     elif isinstance(value, (int, float)):
+1208:                         value = str(value)
+1209:                     
+1210:                     new_lines.append(f"{key}={value}\n")
+1211:                 else:
+1212:                     # 保留原行
+1213:                     new_lines.append(line)
+1214:             else:
+1215:                 new_lines.append(line)
+1216:         
+1217:         # 写回文件
+1218:         with open(env_path, 'w', encoding='utf-8') as f:
+1219:             f.writelines(new_lines)
+1220:         
+1221:         logger.info(f"环境配置已保存: {len(new_config)} 项")
+1222:         
+1223:         return {
+1224:             "status": "success",
+1225:             "message": "环境配置已保存（部分配置需重启生效）",
+1226:             "updated_count": len(new_config)
+1227:         }
+1228:     
+1229:     except Exception as e:
+1230:         logger.error(f"保存环境配置失败: {e}")
+1231:         raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
+1232: 
+1233: 
+1234: @app.get("/api/settings/browser-constants")
+1235: async def get_browser_constants(authenticated: bool = Depends(verify_auth)):
+1236:     """
+1237:     读取浏览器常量配置
+1238:     """
+1239:     try:
+1240:         config_path = Path("browser_config.json")
+1241:         
+1242:         if config_path.exists():
+1243:             with open(config_path, 'r', encoding='utf-8') as f:
+1244:                 config = json.load(f)
+1245:         else:
+1246:             # 返回默认值
+1247:             from browser_core import BrowserConstants
+1248:             
+1249:             # 如果 BrowserConstants 还没有 get_defaults 方法，返回硬编码的默认值
+1250:             config = {
+1251:                 'DEFAULT_PORT': 9222,
+1252:                 'CONNECTION_TIMEOUT': 10,
+1253:                 'STEALTH_DELAY_MIN': 0.1,
+1254:                 'STEALTH_DELAY_MAX': 0.3,
+1255:                 'ACTION_DELAY_MIN': 0.15,
+1256:                 'ACTION_DELAY_MAX': 0.3,
+1257:                 'DEFAULT_ELEMENT_TIMEOUT': 3,
+1258:                 'FALLBACK_ELEMENT_TIMEOUT': 1,
+1259:                 'ELEMENT_CACHE_MAX_AGE': 5.0,
+1260:                 'STREAM_CHECK_INTERVAL_MIN': 0.1,
+1261:                 'STREAM_CHECK_INTERVAL_MAX': 1.0,
+1262:                 'STREAM_CHECK_INTERVAL_DEFAULT': 0.3,
+1263:                 'STREAM_SILENCE_THRESHOLD': 8.0,
+1264:                 'STREAM_MAX_TIMEOUT': 600,
+1265:                 'STREAM_INITIAL_WAIT': 180,
+1266:                 'STREAM_RERENDER_WAIT': 0.5,
+1267:                 'STREAM_CONTENT_SHRINK_TOLERANCE': 3,
+1268:                 'STREAM_MIN_VALID_LENGTH': 10,
+1269:                 'STREAM_STABLE_COUNT_THRESHOLD': 8,
+1270:                 'STREAM_SILENCE_THRESHOLD_FALLBACK': 12,
+1271:                 'MAX_MESSAGE_LENGTH': 100000,
+1272:                 'MAX_MESSAGES_COUNT': 100,
+1273:                 'STREAM_INITIAL_ELEMENT_WAIT': 10,
+1274:                 'STREAM_MAX_ABNORMAL_COUNT': 5,
+1275:                 'STREAM_MAX_ELEMENT_MISSING': 10,
+1276:                 'STREAM_CONTENT_SHRINK_THRESHOLD': 0.3,
+1277:             }
+1278:         
+1279:         return {"config": config}
+1280:     
+1281:     except Exception as e:
+1282:         logger.error(f"读取浏览器常量失败: {e}")
+1283:         raise HTTPException(status_code=500, detail=f"读取失败: {str(e)}")
+1284: 
+1285: 
+1286: @app.post("/api/settings/browser-constants")
+1287: async def save_browser_constants(
+1288:     request: Request,
+1289:     authenticated: bool = Depends(verify_auth)
+1290: ):
+1291:     """
+1292:     保存浏览器常量配置
+1293:     """
+1294:     try:
+1295:         data = await request.json()
+1296:         config = data.get("config", {})
+1297:         
+1298:         config_path = Path("browser_config.json")
+1299:         
+1300:         # 保存到文件
+1301:         with open(config_path, 'w', encoding='utf-8') as f:
+1302:             json.dump(config, f, indent=2, ensure_ascii=False)
+1303:         
+1304:         # 尝试热重载
+1305:         try:
+1306:             from browser_core import BrowserConstants
+1307:             if hasattr(BrowserConstants, 'reload'):
+1308:                 BrowserConstants.reload()
+1309:                 logger.info("浏览器常量已热重载")
+1310:             else:
+1311:                 logger.warning("BrowserConstants 不支持热重载，需重启服务")
+1312:         except Exception as reload_error:
+1313:             logger.warning(f"热重载失败: {reload_error}")
+1314:         
+1315:         logger.info(f"浏览器常量已保存: {len(config)} 项")
+1316:         
+1317:         return {
+1318:             "status": "success",
+1319:             "message": "浏览器常量已保存",
+1320:             "updated_count": len(config)
+1321:         }
+1322:     
+1323:     except Exception as e:
+1324:         logger.error(f"保存浏览器常量失败: {e}")
+1325:         raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")
+1326: # ================= 多账号实例管理 API =================
+1327: 
+1328: def _find_chrome_exe() -> Optional[str]:
+1329:     candidates = [
+1330:         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+1331:         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+1332:         os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+1333:         os.path.expandvars(r"%PROGRAMFILES(X86)%\Microsoft\Edge\Application\msedge.exe"),
+1334:     ]
+1335:     for p in candidates:
+1336:         if os.path.exists(p):
+1337:             return p
+1338:     return None
+1339: 
+1340: 
+1341: def _read_browser_config_raw() -> dict:
+1342:     p = Path("browser_config.json")
+1343:     if p.exists():
+1344:         with open(p, 'r', encoding='utf-8') as f:
+1345:             return json.load(f)
+1346:     return {}
+1347: 
+1348: 
+1349: def _write_browser_config_raw(cfg: dict):
+1350:     p = Path("browser_config.json")
+1351:     with open(p, 'w', encoding='utf-8') as f:
+1352:         json.dump(cfg, f, indent=2, ensure_ascii=False)
+1353:     try:
+1354:         from browser_core import BrowserConstants
+1355:         if hasattr(BrowserConstants, 'reload'):
+1356:             BrowserConstants.reload()
+1357:     except Exception:
+1358:         pass
+1359: 
+1360: 
+1361: def _debug_port_alive(port: int) -> bool:
+1362:     if not port:
+1363:         return False
+1364:     import socket
+1365:     s = socket.socket()
+1366:     s.settimeout(0.8)
+1367:     try:
+1368:         s.connect(("127.0.0.1", int(port)))
+1369:         return True
+1370:     except Exception:
+1371:         return False
+1372:     finally:
+1373:         s.close()
+1374: 
+1375: 
+1376: @app.get("/api/instances")
+1377: async def get_instances(authenticated: bool = Depends(verify_auth)):
+1378:     """多账号实例列表（含端口可达状态 + 各配置站点积分状态，全局跨站点）。"""
+1379:     cfg = _read_browser_config_raw()
+1380:     instances = cfg.get("INSTANCES") or [
+1381:         {"name": "main", "port": cfg.get("DEFAULT_PORT", 9222)}]
+1382:     sites = list(config_engine.sites.keys())
+1383:     now = time.time()
+1384:     out = []
+1385:     for inst in instances:
+1386:         port = int(inst.get("port") or 0)
+1387:         credit_sites = []
+1388:         for rec in CreditStateStore.records_for_port(port):
+1389:             # 只展示当前配置的站点，避免已删除站点的残留记录
+1390:             if rec["domain"] in sites:
+1391:                 credit_sites.append({
+1392:                     "domain": rec["domain"],
+1393:                     "model": rec.get("model") or "",
+1394:                     "exhausted_until": rec["exhausted_until"],
+1395:                 })
+1396:         credit_sites.sort(key=lambda r: (r["domain"], r["model"]))
+1397:         out.append({
+1398:             "name": inst.get("name"),
+1399:             "port": port,
+1400:             "user_data_dir": inst.get("user_data_dir"),
+1401:             "alive": _debug_port_alive(port),
+1402:             "credit_sites": credit_sites,
+1403:         })
+1404:     return {"instances": out, "chrome_path": _find_chrome_exe(), "sites": sites}
+1405: 
+1406: 
+1407: @app.delete("/api/credit-state")
+1408: async def clear_credit_state(domain: str, port: int,
+1409:                              model: Optional[str] = None,
+1410:                              authenticated: bool = Depends(verify_auth)):
+1411:     """手动清除某账号在某站点的积分耗尽记录（立即恢复该账号可用）。
+1412: 
+1413:     model 不传时清除该账号在该站点全部模型的记录。"""
+1414:     removed = CreditStateStore.clear(domain, port, model=model)
+1415:     return {"status": "success", "removed": removed}
+1416: 
+1417: 
+1418: @app.post("/api/instances")
+1419: async def create_instance(request: Request,
+1420:                           authenticated: bool = Depends(verify_auth)):
+1421:     """新增账号：自动分配调试端口 + 独立 profile 目录，
+1422:     启动新的 Chrome 窗口并打开默认站点（poe.com）供登录。"""
+1423:     global config_engine
+1424:     try:
+1425:         data = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+1426:         default_site = BrowserConstants.get("DEFAULT_SITE") or "poe.com"
+1427:         cfg = _read_browser_config_raw()
+1428:         instances = cfg.setdefault("INSTANCES", []) or []
+1429:         if not instances:
+1430:             instances = [{"name": "main", "port": cfg.get("DEFAULT_PORT", 9222)}]
+1431:             cfg["INSTANCES"] = instances
+1432:         used_ports = {int(i.get("port") or 0) for i in instances}
+1433:         port = (max(used_ports) + 1) if used_ports else 9223
+1434:         while port in used_ports or _debug_port_alive(port):
+1435:             port += 1
+1436:         base = (data.get("name") or "").strip() or f"acc{len(instances) + 1}"
+1437:         name = base
+1438:         n = 2
+1439:         names = {i.get("name") for i in instances}
+1440:         while name in names:
+1441:             name = f"{base}{n}"
+1442:             n += 1
+1443:         profile_dir = os.path.abspath(os.path.join("chrome_profiles", name))
+1444:         os.makedirs(profile_dir, exist_ok=True)
+1445:         chrome = _find_chrome_exe()
+1446:         if not chrome:
+1447:             raise HTTPException(status_code=500,
+1448:                                 detail="未找到 Chrome/Edge，请先安装 Chrome")
+1449:         subprocess.Popen(
+1450:             [chrome, f"--remote-debugging-port={port}",
+1451:              f"--user-data-dir={profile_dir}",
+1452:              "--no-first-run", "--no-default-browser-check",
+1453:              f"https://{default_site}"],
+1454:             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+1455:         inst = {"name": name, "port": port, "user_data_dir": profile_dir}
+1456:         instances.append(inst)
+1457:         _write_browser_config_raw(cfg)
+1458:         logger.info(f"[Instance] 新增账号实例 {name}:{port}，profile={profile_dir}，"
+1459:                     f"已打开 https://{default_site} 供登录")
+1460:         return {"status": "success", "instance": {**inst, "alive": True},
+1461:                 "message": f"浏览器窗口已启动（{name}, 端口 {port}），"
+1462:                            f"请在弹出的窗口里登录 {default_site} 账号"}
+1463:     except HTTPException:
+1464:         raise
+1465:     except Exception as e:
+1466:         logger.error(f"新增实例失败: {e}")
+1467:         raise HTTPException(status_code=500, detail=f"新增失败: {str(e)}")
+1468: 
+1469: 
+1470: @app.post("/api/instances/{name}/launch")
+1471: async def launch_instance(name: str, authenticated: bool = Depends(verify_auth)):
+1472:     """启动已配置但未运行的账号浏览器窗口。"""
+1473:     try:
+1474:         cfg = _read_browser_config_raw()
+1475:         inst = next((i for i in (cfg.get("INSTANCES") or [])
+1476:                      if i.get("name") == name), None)
+1477:         if not inst:
+1478:             raise HTTPException(status_code=404, detail=f"实例 {name} 不存在")
+1479:         port = int(inst.get("port") or 0)
+1480:         if _debug_port_alive(port):
+1481:             return {"status": "success", "message": f"{name} 已在运行（端口 {port}）"}
+1482:         profile_dir = inst.get("user_data_dir") or os.path.abspath(
+1483:             os.path.join("chrome_profiles", name))
+1484:         os.makedirs(profile_dir, exist_ok=True)
+1485:         chrome = _find_chrome_exe()
+1486:         if not chrome:
+1487:             raise HTTPException(status_code=500,
+1488:                                 detail="未找到 Chrome/Edge，请先安装 Chrome")
+1489:         default_site = BrowserConstants.get("DEFAULT_SITE") or "poe.com"
+1490:         subprocess.Popen(
+1491:             [chrome, f"--remote-debugging-port={port}",
+1492:              f"--user-data-dir={profile_dir}",
+1493:              "--no-first-run", "--no-default-browser-check",
+1494:              f"https://{default_site}"],
+1495:             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+1496:         logger.info(f"[Instance] 已启动实例 {name}:{port}")
+1497:         return {"status": "success",
+1498:                 "message": f"已启动 {name}（端口 {port}），窗口稍后弹出"}
+1499:     except HTTPException:
+1500:         raise
+1501:     except Exception as e:
+1502:         logger.error(f"启动实例失败: {e}")
+1503:         raise HTTPException(status_code=500, detail=f"启动失败: {str(e)}")
+1504: 
+1505: 
+1506: @app.delete("/api/instances/{name}")
+1507: async def delete_instance(name: str, authenticated: bool = Depends(verify_auth)):
+1508:     """移除账号实例配置（可选同时关闭对应浏览器窗口）。"""
+1509:     try:
+1510:         cfg = _read_browser_config_raw()
+1511:         instances = cfg.get("INSTANCES") or []
+1512:         target = next((i for i in instances if i.get("name") == name), None)
+1513:         if not target:
+1514:             raise HTTPException(status_code=404, detail=f"实例 {name} 不存在")
+1515:         port = int(target.get("port") or 0)
+1516:         # 关闭对应浏览器进程（按监听该端口的进程）
+1517:         if port and _debug_port_alive(port):
+1518:             try:
+1519:                 ps = subprocess.run(
+1520:                     ["powershell", "-NoProfile", "-Command",
+1521:                      f"(Get-NetTCPConnection -LocalPort {port} -State Listen "
+1522:                      "-ErrorAction SilentlyContinue).OwningProcess"],
+1523:                     capture_output=True, text=True, timeout=10)
+1524:                 pid = ps.stdout.strip().splitlines()[-1].strip() if ps.stdout.strip() else ""
+1525:                 if pid.isdigit():
+1526:                     subprocess.run(["taskkill", "/PID", pid, "/T", "/F"],
+1527:                                    capture_output=True, timeout=10)
+1528:                     logger.info(f"[Instance] 已关闭实例 {name} 进程 (pid {pid})")
+1529:             except Exception as e:
+1530:                 logger.warning(f"[Instance] 关闭实例 {name} 进程失败: {e}")
+1531:         instances = [i for i in instances if i.get("name") != name]
+1532:         cfg["INSTANCES"] = instances
+1533:         _write_browser_config_raw(cfg)
+1534:         logger.info(f"[Instance] 已移除账号实例 {name}")
+1535:         return {"status": "success", "message": f"实例 {name} 已移除"}
+1536:     except HTTPException:
+1537:         raise
+1538:     except Exception as e:
+1539:         logger.error(f"移除实例失败: {e}")
+1540:         raise HTTPException(status_code=500, detail=f"移除失败: {str(e)}")
+1541: 
+1542: 
+1543: # ================= 日志 API =================
+1544: 
+1545: @app.get("/api/logs")
+1546: async def get_logs(since: float = 0, authenticated: bool = Depends(verify_auth)):
+1547:     logs = log_collector.get_recent(since)
+1548:     return {"logs": logs, "timestamp": time.time()}
+1549: 
+1550: 
+1551: @app.delete("/api/logs")
+1552: async def clear_logs(authenticated: bool = Depends(verify_auth)):
+1553:     log_collector.clear()
+1554:     return {"status": "success"}
+1555: 
+1556: 
+1557: # ================= 调试 API =================
+1558: 
+1559: @app.post("/api/debug/test-selector")
+1560: async def test_selector(
+1561:     request: Request,
+1562:     authenticated: bool = Depends(verify_auth)
+1563: ):
+1564:     if not AppConfig.DEBUG:
+1565:         raise HTTPException(status_code=403, detail="调试功能未启用")
+1566:     
+1567:     try:
+1568:         data = await request.json()
+1569:         selector = data.get("selector", "")
+1570:         timeout = data.get("timeout", 2)
+1571:         highlight = data.get("highlight", False)
+1572:         
+1573:         if not selector:
+1574:             raise HTTPException(status_code=400, detail="缺少 selector")
+1575:         
+1576:         browser = get_browser()
+1577:         tab = browser.get_active_tab()
+1578:         elements = tab.eles(selector, timeout=timeout)
+1579:         
+
+(Showing lines 1020-1579 of 1755. Use offset=1580 to continue.)
+</content>
+
+[tool_result name=call_d5ab3aae492540bc95d43f39]
+<path>C:\Users\mey\Desktop\universalweb-api-main\browser_core.py</path>
+<type>file</type>
+<content>
+2100:                         )
+2101:                     other_parts.append("[assistant]\n" + "\n".join(lines))
+2102:                 if content:
+2103:                     other_parts.append(f"[assistant]\n{content}")
+2104:             else:
+2105:                 other_parts.append(f"[{role}]\n{content}")
+2106: 
+2107:         parts: List[str] = []
+2108:         # 协议放最前（用户实测 poe HIT 的结构：话术在前，[user] 消息在后）
+2109:         if protocol:
+2110:             parts.append(protocol)
+2111:         if system_parts:
+2112:             parts.append("\n\n".join(system_parts))
+2113:         parts.extend(other_parts)
+2114:         prompt = "\n\n".join(parts)
+2115: 
+2116:         if has_tool_result:
+2117:             prompt += (
+2118:                 "\n\n上一轮工具调用结果已在上方 [tool_result]。"
+2119:                 "若任务完成，直接给最终回答；若需继续，重新输出 tool_call。"
+2120:             )
+2121: 
+2122:         return prompt
+2123: 
+2124: 
+2125: class FileUploadHelper:
+2126:     @staticmethod
+2127:     def _ensure_dir(cfg: dict) -> Path:
+2128:         upload_dir = Path(cfg.get("upload_dir", "uploads"))
+2129:         upload_dir.mkdir(parents=True, exist_ok=True)
+2130:         return upload_dir
+2131: 
+2132:     @classmethod
+2133:     def prepare_single_file(cls, prompt: str, cfg: dict) -> tuple:
+2134:         upload_dir = cls._ensure_dir(cfg)
+2135:         ext = cfg.get("file_ext", "txt")
+2136:         filename = f"prompt_{int(time.time())}_{uuid.uuid4().hex[:6]}.{ext}"
+2137:         filepath = upload_dir / filename
+2138:         filepath.write_text(prompt, encoding="utf-8")
+2139:         logger.info(f"[Upload] 单文件已准备: {filepath} ({len(prompt)} 字符)")
+2140:         return str(filepath.resolve()), filename
+2141: 
+2142:     @classmethod
+2143:     def prepare_chunked_files(cls, prompt: str, cfg: dict) -> list:
+2144:         upload_dir = cls._ensure_dir(cfg)
+2145:         ext = cfg.get("file_ext", "txt")
+2146:         chunk_size = int(cfg.get("chunk_size", 50000))
+2147:         max_files = int(cfg.get("max_upload_files", 5))
+2148: 
+2149:         chunks = [prompt[i:i + chunk_size] for i in range(0, len(prompt), chunk_size)]
+2150:         if len(chunks) > max_files:
+2151:             logger.warning(f"[Upload] 分块数 {len(chunks)} 超过上限 {max_files}，合并尾部")
+2152:             head = chunks[:max_files - 1]
+2153:             tail = "\n".join(chunks[max_files - 1:])
+2154:             chunks = head + [tail]
+2155: 
+2156:         stamp = int(time.time())
+2157:         uid = uuid.uuid4().hex[:6]
+2158:         total = len(chunks)
+2159:         files = []
+2160:         for i, chunk in enumerate(chunks):
+2161:             name = f"prompt_{stamp}_{uid}_part{i + 1:02d}of{total:02d}.{ext}"
+2162:             path = upload_dir / name
+2163:             path.write_text(chunk, encoding="utf-8")
+2164:             files.append((str(path.resolve()), name))
+2165:         logger.info(f"[Upload] 分块文件已准备: {len(files)} 个 (chunk_size={chunk_size})")
+2166:         return files
+2167: 
+2168: 
+2169: class LongPromptRouter:
+2170:     STRATEGY_DIRECT = "direct"
+2171:     STRATEGY_FILE = "file"
+2172:     STRATEGY_CHUNKED = "chunked"
+2173: 
+2174:     @classmethod
+2175:     def decide(cls, prompt: str, cfg: dict) -> tuple:
+2176:         if not prompt:
+2177:             return cls.STRATEGY_DIRECT, None
+2178:         if not cfg.get("enabled", True):
+2179:             return cls.STRATEGY_DIRECT, None
+2180: 
+2181:         max_len = int(cfg.get("max_prompt_length", 2000))
+2182:         max_file = int(cfg.get("max_file_size", 5 * 1024 * 1024))
+2183: 
+2184:         if len(prompt) <= max_len:
+2185:             return cls.STRATEGY_DIRECT, None
+2186: 
+2187:         size_bytes = len(prompt.encode("utf-8"))
+2188:         if size_bytes <= max_file:
+2189:             path, name = FileUploadHelper.prepare_single_file(prompt, cfg)
+2190:             return cls.STRATEGY_FILE, {"file_path": path, "filename": name}
+2191: 
+2192:         files = FileUploadHelper.prepare_chunked_files(prompt, cfg)
+2193:         return cls.STRATEGY_CHUNKED, {"files": files}
+2194: 
+2195: 
+2196: @dataclass
+2197: class CachedElement:
+2198:     element: Any
+2199:     selector: str
+
+(Showing lines 2100-2199 of 5000. Use offset=2200 to continue.)
+</content>
+
+[tool_result name=call_c273d8928d734b519fd2ee46]
+<path>C:\Users\mey\Desktop\universalweb-api-main\config_engine.py</path>
+<type>file</type>
+<content>
+1: """
+2: config_engine.py - 配置引擎
+3: 
+4: 职责：
+5: - 站点配置加载/保存
+6: - AI 自动识别页面选择器
+7: - 选择器验证与修复
+8: - 配置文件热更新与快照管理
+9: """
+10: 
+11: import json
+12: import os
+13: import re
+14: import time
+15: import logging
+16: import copy  # Added for snapshot
+17: from typing import Dict, Optional, List, Any
+18: from urllib import request, error
+19: import bs4
+20: from bs4 import BeautifulSoup
+21: 
+22: from data_models import SiteConfig, WorkflowStep, AIAnalysisResult
+23: 
+24: 
+25: # ================= 常量配置 =================
+26: 
+27: class ConfigConstants:
+28:     """配置引擎常量"""
+29:     # 文件配置
+30:     CONFIG_FILE = os.getenv("SITES_CONFIG_FILE", "sites.json")
+31:     
+32:     # AI 配置（支持环境变量）
+33:     HELPER_API_KEY = os.getenv("HELPER_API_KEY", "lumingya")
+34:     HELPER_BASE_URL = os.getenv("HELPER_BASE_URL", "http://127.0.0.1:5104/v1")
+35:     HELPER_MODEL = os.getenv("HELPER_MODEL", "gemini-3-pro")
+36:     
+37:     # HTML 处理
+38:     MAX_HTML_CHARS = int(os.getenv("MAX_HTML_CHARS", "120000"))
+39:     TEXT_TRUNCATE_LENGTH = 80
+40:     
+41:     # AI 重试
+42:     AI_MAX_RETRIES = 3
+43:     AI_RETRY_BASE_DELAY = 1.0  # 初始延迟
+44:     AI_RETRY_MAX_DELAY = 10.0  # 最大延迟
+45:     AI_REQUEST_TIMEOUT = 120
+46:     
+47:     # 隐身模式站点
+48:     STEALTH_DOMAINS = ['lmarena.ai', 'poe.com', 'you.com', 'chatgpt.com']
+49: 
+50: 
+51: # 默认工作流
+52: # 注意：STREAM_WAIT 步骤会使用 result_container 选择器
+53: # 如果配置了 message_wrapper，会用于定位完整消息容器
+54: # 如果配置了 generating_indicator，会用于检测生成状态
+55: DEFAULT_WORKFLOW: List[WorkflowStep] = [
+56:     {"action": "CLICK", "target": "new_chat_btn", "optional": True, "value": None},
+57:     {"action": "WAIT", "target": "", "optional": False, "value": "0.5"},
+58:     {"action": "FILL_INPUT", "target": "input_box", "optional": False, "value": None},
+59:     {"action": "CLICK", "target": "send_btn", "optional": True, "value": None},
+60:     {"action": "KEY_PRESS", "target": "Enter", "optional": True, "value": None},
+61:     {"action": "STREAM_WAIT", "target": "result_container", "optional": False, "value": None}
+62: ]
+63: 
+64: # 通用回退选择器
+65: FALLBACK_SELECTORS = {
+66:     "input_box": "textarea",
+67:     "send_btn": "button[type=\"submit\"]",
+68:     "result_container": "div",
+69:     "new_chat_btn": None,
+70:     "message_wrapper": None,
+71:     "generating_indicator": None,
+72:     "upload_btn": None,                    # 新增
+73:     "file_input": "input[type=\"file\"]",  # 新增
+74: }
+75: 
+76: # 无效选择器语法模式
+77: INVALID_SYNTAX_PATTERNS = [
+78:     (r'~\s*\.\.', '~ .. 无效语法'),
+79:     (r'\.\.\s*$', '结尾 .. 无效'),
+80:     (r'>>\s', '>> 无效语法'),
+81:     (r':has\(', ':has() 兼容性差'),
+82:     (r'\s~\s*$', '结尾 ~ 无效'),
+83: ]
+84: 
+85: 
+86: # ================= 日志配置 =================
+87: 
+88: logger = logging.getLogger('config_engine')
+89: if not logger.handlers:
+90:     handler = logging.StreamHandler()
+91:     formatter = logging.Formatter('[%(asctime)s] %(levelname)s [Config] %(message)s', datefmt='%H:%M:%S')
+92:     handler.setFormatter(formatter)
+93:     logger.addHandler(handler)
+94:     logger.setLevel(logging.INFO)
+95: 
+96: 
+97: # ================= HTML 清理器 =================
+98: 
+99: class HTMLCleaner:
+100:     """HTML 清理器 - 独立职责"""
+101:     
+102:     # 要移除的标签
+103:     TAGS_TO_REMOVE = [
+104:         'script', 'style', 'meta', 'link', 'noscript',
+105:         'img', 'video', 'audio', 'iframe', 'canvas',
+106:         'path', 'rect', 'circle', 'polygon', 'defs', 'clipPath',
+107:         'header', 'footer', 'nav', 'aside',  # 移除非核心区域
+108:     ]
+109:     
+110:     # 保留的属性
+111:     ALLOWED_ATTRS = [
+112:         'id', 'class', 'name', 'placeholder', 'aria-label', 'role',
+113:         'data-testid', 'type', 'disabled', 'value', 'title', 'tabindex',
+114:         'contenteditable', 'href'
+115:     ]
+116:     
+117:     # 交互元素标签（必须保留）
+118:     INTERACTIVE_TAGS = ['input', 'textarea', 'button', 'form', 'a']
+119:     
+120:     # 核心区域选择器（优先保留）
+121:     CORE_AREA_SELECTORS = [
+122:         '[role="main"]',
+123:         'main',
+124:         '#app',
+125:         '#root',
+126:         '.chat',
+127:         '.conversation',
+128:         '.message',
+129:     ]
+130:     
+131:     def __init__(self, max_chars: int = None, text_truncate: int = None):
+132:         self.max_chars = max_chars or ConfigConstants.MAX_HTML_CHARS
+133:         self.text_truncate = text_truncate or ConfigConstants.TEXT_TRUNCATE_LENGTH
+134:     
+135:     def clean(self, html: str) -> str:
+136:         """深度清理 HTML"""
+137:         logger.debug("开始 HTML 清理...")
+138:         original_length = len(html)
+139:         
+140:         soup = BeautifulSoup(html, 'html.parser')
+141:         
+142:         # 1. 提取所有交互元素（在删除任何内容前）
+143:         interactive_elements = self._extract_interactive_elements(soup)
+144:         
+145:         # 2. 移除非必要标签
+146:         for tag in soup(self.TAGS_TO_REMOVE):
+147:             tag.decompose()
+148:         
+149:         # 3. 移除注释
+150:         for element in soup(text=lambda t: isinstance(t, bs4.element.Comment)):
+151:             element.extract()
+152:         
+153:         # 4. 清理属性和截断文本
+154:         for tag in soup.find_all(True):
+155:             if tag.string and len(tag.string) > self.text_truncate:
+156:                 tag.string = tag.string[:self.text_truncate] + "..."
+157:             
+158:             attrs = dict(tag.attrs)
+159:             for attr in attrs:
+160:                 if attr not in self.ALLOWED_ATTRS:
+161:                     del tag.attrs[attr]
+162:             
+163:             if 'class' in tag.attrs and isinstance(tag.attrs['class'], list):
+164:                 tag.attrs['class'] = " ".join(tag.attrs['class'])
+165:         
+166:         # 5. 获取清理后的 HTML
+167:         clean_html = str(soup.body) if soup.body else str(soup)
+168:         clean_html = re.sub(r'\s+', ' ', clean_html).strip()
+169:         
+170:         # 6. 智能截断（如果需要）
+171:         if len(clean_html) > self.max_chars:
+172:             logger.warning(f"HTML 过长 ({len(clean_html)})，执行智能截断...")
+173:             clean_html = self._smart_truncate(clean_html, interactive_elements)
+174:         
+175:         final_length = len(clean_html)
+176:         reduction = 100 - (final_length / original_length * 100) if original_length > 0 else 0
+177:         logger.info(f"HTML 清理完成: {original_length} → {final_length} 字符 (减少 {reduction:.1f}%)")
+178:         
+179:         return clean_html
+180:     
+
+(Showing lines 1-180 of 781. Use offset=181 to continue.)
+</content>
+
+上一轮工具调用结果已在上方 [tool_result]。若任务完成，直接给最终回答；若需继续，重新输出 tool_call。

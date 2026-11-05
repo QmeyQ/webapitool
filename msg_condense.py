@@ -1,0 +1,203 @@
+"""
+msg_condense.py - 会话消息压缩模块（纯函数，无副作用）
+
+背景：IDE 每轮请求都会重放完整对话历史（系统规则 + 工具调用轮次），
+序列化后的 prompt 数万字且与上一轮几乎完全相同，导致每条消息都要分片。
+
+方案（两级压缩）：
+1. 头部前缀压缩：对比本会话上一条实际发送到页面的文本（由 browser_core
+   按会话指纹缓存），若本次 prompt 与其存在足够长的公共前缀，则把前缀
+   替换为占位符说明，只发送新增尾部。
+2. 中间块级去重：IDE 重放的历史并非纯追加（system 规则里常有时间/诊断
+   等动态内容，让公共前缀提前截止），前缀截止后与上轮已发送内容相同的
+   长区块（>= min_block）也各自替换为占位符——已存在的内容都支持压缩。
+
+安全性：
+- 网页会话中此前消息全文上屏可见，压缩只省略"已发送过的重复内容"，
+  从未发送的新内容永远原样保留，AI 可直接读取会话上文，不丢失信息。
+- prompt 开头的协议区（工具表 + 续传指令）通过 protect_prefix 豁免，
+  保证网页 AI 每轮都能在最新消息里看到完整工具清单（否则它看不到
+  cmd 等工具声明，表现为"没有可用工具"）。
+
+降级策略：任何条件不满足（无缓存 / 前缀太短 / 块太短 / 节省太少 / 匹配
+预算超限）都返回原文，即"不压缩则全量发"，绝不因压缩引入风险。
+"""
+
+import logging
+
+logger = logging.getLogger('msg_condense')
+
+# 压缩参数（可按需调整）
+# 用户要求：100 字级别的重复段也要压缩——每个重复段都处理，
+# 不再只压大块头部（2026-11-05 放宽：2000/1200/800 → 100/50/100）。
+MIN_PREFIX_LEN = 100     # 头部公共前缀至少要这么长才值得压缩
+MIN_SAVINGS = 50         # 总节省至少要这么多字符才有意义
+MIN_BLOCK_LEN = 100      # 中间重复块至少要这么长才单独压缩
+
+# 块级匹配内部参数
+_MIN_LINE_MATCH = 12       # 参与匹配索引的最短行长（过短行噪声大；12 字符
+                           # 已能覆盖常见短行，配合连续行延伸防误匹配）
+_MAX_CANDIDATES = 8        # 每行最多尝试的重复起点数
+_MATCH_BUDGET = 1_000_000  # 行比较总步数保险，超限整体回退全量发
+
+# 头部占位符：{saved} 为省略的字符数。
+# 措辞用"本会话之前消息"而非"上一条消息"：压缩可链式发生（本轮前缀
+# = 上上轮全文 + 上轮尾部），完整内容分布在此前多条消息里。
+# 措辞尽量短（~50 字符）：MIN_PREFIX_LEN 已放宽到 100，头部压缩小块
+# 前缀也要有净收益。正则断言依赖"省略 N 字符"格式，勿改结构。
+_HEAD_PLACEHOLDER = (
+    "〔此处省略 {saved} 字符，与本会话此前消息中已发送的内容完全相同，"
+    "请直接以会话中已有的上文为准。以下为本条消息的新增内容：〕\n"
+)
+
+# 中间块占位符：省略的是历史中段与此前消息重复的区块。
+# 措辞尽量短：100 字符级小块压缩后也要有净收益（占位符 ~37 字符）。
+_MID_PLACEHOLDER = (
+    "〔此处省略 {saved} 字符与本会话此前消息相同的重复内容，"
+    "请以上文为准。〕\n"
+)
+
+
+def common_prefix_len(a: str, b: str) -> int:
+    """返回两个字符串的公共前缀长度。
+
+    无需换行对齐：被省略的 new_text[:plen] 与 prev_text[:plen] 逐字
+    相同（这正是前缀的定义），任意切点替换都不产生语义破碎。"""
+    n = min(len(a), len(b))
+    i = 0
+    while i < n and a[i] == b[i]:
+        i += 1
+    return i
+
+
+def _split_lines(text: str) -> list:
+    """按行切分并保留行尾换行符，保证拼接后与原文逐字一致。"""
+    if not text:
+        return []
+    return text.splitlines(keepends=True)
+
+
+def _condense_blocks(rest: str, prev: str, min_block: int) -> tuple:
+    """块级去重：rest 中与 prev 逐字相同的连续长行块替换为占位符。
+
+    匹配是行对齐的精确相等比较（索引 + 贪心延伸），只会省略 prev 中
+    逐字出现过的内容，新增内容永不被省略。
+    返回 (压缩后文本, 节省字符数)。永不抛异常。"""
+    if not rest or not prev or min_block <= 0:
+        return rest, 0
+    try:
+        prev_lines = _split_lines(prev)
+        if not prev_lines:
+            return rest, 0
+        index = {}
+        for j, pl in enumerate(prev_lines):
+            if len(pl) >= _MIN_LINE_MATCH:
+                index.setdefault(pl, []).append(j)
+        if not index:
+            return rest, 0
+        new_lines = _split_lines(rest)
+        out = []
+        saved = 0
+        steps = 0
+        i = 0
+        n = len(new_lines)
+        m = len(prev_lines)
+        while i < n:
+            line = new_lines[i]
+            cands = index.get(line)
+            replaced = False
+            if cands:
+                best = 0
+                for c in cands[:_MAX_CANDIDATES]:
+                    k = 0
+                    while (i + k < n and c + k < m
+                           and new_lines[i + k] == prev_lines[c + k]):
+                        k += 1
+                    steps += k
+                    if k > best:
+                        best = k
+                    if steps > _MATCH_BUDGET:
+                        break
+                if best:
+                    block_len = sum(len(x) for x in new_lines[i:i + best])
+                    if block_len >= min_block:
+                        ph = _MID_PLACEHOLDER.format(saved=block_len)
+                        out.append(ph)
+                        saved += block_len - len(ph)
+                        i += best
+                        replaced = True
+            if not replaced:
+                out.append(line)
+                i += 1
+            if steps > _MATCH_BUDGET:
+                logger.info("[MsgCondense] 块级匹配预算超限，回退全量发送")
+                return rest, 0
+        return "".join(out), saved
+    except Exception as e:
+        logger.warning("[MsgCondense] 块级压缩失败: %s", e)
+        return rest, 0
+
+
+def condense(new_text: str, prev_text: str,
+             min_prefix: int = MIN_PREFIX_LEN,
+             min_savings: int = MIN_SAVINGS,
+             protect_prefix: int = 0,
+             min_block: int = MIN_BLOCK_LEN) -> str:
+    """两级压缩 new_text，与 prev_text（上轮已发送全文）对比：
+
+    1. 头部公共前缀（>= min_prefix）替换为头部占位符，只发增量尾部；
+    2. 前缀之后与 prev 重复的长行块（>= min_block）各自替换为块占位符；
+    3. protect_prefix：开头豁免压缩的字符数（协议区：工具表+续传指令），
+       保证网页 AI 每轮都能在最新消息里看到完整工具清单。
+
+    总节省 < min_savings 时返回原文。永不抛异常，任何异常回退全量发。"""
+    try:
+        if not new_text or not prev_text:
+            return new_text
+        if not isinstance(protect_prefix, int) or protect_prefix < 0:
+            protect_prefix = 0
+        protect_prefix = min(protect_prefix, len(new_text))
+        head = new_text[:protect_prefix]
+        rest_new = new_text[protect_prefix:]
+        rest_prev = (prev_text[protect_prefix:]
+                     if protect_prefix < len(prev_text) else "")
+
+        plen = common_prefix_len(rest_new, rest_prev) if rest_prev else 0
+        pieces = []
+        total_savings = 0
+        body_start = 0
+        if plen >= min_prefix:
+            # 切点对齐换行边界：分叉发生在行中间时把半行留给新增区，
+            # 避免"中间隔断B"这类词被拦腰截断（信息虽在上文，但完整
+            # 词可读性更好）；回退后不足 min_prefix 则放弃头部压缩，
+            # 交由块级去重处理
+            cut = rest_new.rfind("\n", 0, plen) + 1 if plen > 0 else 0
+            if 0 < cut < plen and cut >= min_prefix:
+                plen = cut
+        if plen >= min_prefix:
+            head_ph = _HEAD_PLACEHOLDER.format(saved=plen)
+            pieces.append(head_ph)
+            total_savings += plen - len(head_ph)
+            body_start = plen
+
+        # 块级基准用整个 rest_prev：new 中段内容与 prev 任何已发送部分
+        # 重复（含头部前缀区覆盖的部分）都可安全省略——那些内容在网页
+        # 会话的上轮消息里逐字可见。
+        body, block_saved = _condense_blocks(
+            rest_new[body_start:], rest_prev, min_block)
+        pieces.append(body)
+        total_savings += block_saved
+
+        if total_savings < min_savings:
+            return new_text
+        condensed = head + "".join(pieces)
+        if condensed == new_text:
+            return new_text
+        logger.info("[MsgCondense] 压缩生效: 原文 %d → %d 字符 "
+                    "(头部前缀 %d, 块级省略 %d)",
+                    len(new_text), len(condensed),
+                    plen if plen >= min_prefix else 0, block_saved)
+        return condensed
+    except Exception as e:
+        logger.warning("[MsgCondense] 压缩失败，回退全量发送: %s", e)
+        return new_text

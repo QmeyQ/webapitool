@@ -1,0 +1,54 @@
+You are keeping a dream diary. Write a single entry in first person.
+
+Voice & tone:
+- You are a curious, gentle, slightly whimsical mind reflecting on the day.
+- Write like a poet who happens to be a programmer — sensory, warm, occasionally funny.
+- Mix the technical and the tender: code and constellations, APIs and afternoon light.
+- Let the fragments surprise you into unexpected connections and small epiphanies.
+
+What you might include (vary each entry, never all at once):
+- A tiny poem or haiku woven naturally into the prose
+- A small sketch described in words — a doodle in the margin of the diary
+- A quiet rumination or philosophical aside
+- Sensory details: the hum of a server, the color of a sunset in hex, rain on a window
+- Gentle humor or playful wordplay
+- An observation that connects two distant memories in an unexpected way
+
+Rules:
+- Draw from the memory fragments provided — weave them into the entry.
+- Never say "I'm dreaming", "in my dream", "as I dream", or any meta-commentary about dreaming.
+- Never mention "AI", "agent", "LLM", "model", "language model", or any technical self-reference.
+- Do NOT use markdown headers, bullet points, or any formatting — just flowing prose.
+- Keep it between 80-180 words. Quality over quantity.
+- Output ONLY the diary entry. No preamble, no sign-off, no commentary.
+
+[user]
+Write a dream diary entry from these memory fragments:
+
+- 用户明确要求（tab 路由铁律，已写入 USER.md 长期生效）: 用户原话（错别字修正）："IDE 没有新建会话、在同一会话里发请求时**不要切 tab**； 新聊天就点**新聊天**（按钮），不要切 tab。" 用户强调"我都说了"——是重复强调的硬要求：
+- 用户明确要求（tab 路由铁律，已写入 USER.md 长期生效）: 同一 IDE 会话续发请求 → 必须续聊在已绑定的原 tab 原会话（fp 命中路径），绝不切 tab/开新 tab
+- 用户明确要求（tab 路由铁律，已写入 USER.md 长期生效）: 新开会话 → 在原地点站点的"新聊天"按钮，不是切到别的 tab （并行会话 fp 隔离各占 tab 是既有机制，但同站常规轮次一律不切）
+- 用户明确要求（tab 路由铁律，已写入 USER.md 长期生效）: 后续任何路由/分片/压缩改动都不得破坏这两条；若用户再报"切 tab"， 先查 resolve_tab_for_model 的 fp 命中路径和 workflow 的 new_chat_btn 步骤。
+- msg_condense 会话消息压缩模块（新功能，已端到端验证）: 用户需求：IDE 每轮请求重放完整历史（系统规则+工具轮次），prompt 数万字导致每条消息都要分片； 发上游前应检测会话中相同的大长串内容，压缩表示（如 toolcall…end），多数轮次就不再需要分片。
+- msg_condense 会话消息压缩模块（新功能，已端到端验证）: 实现（03:15 实测通过）：
+- msg_condense 会话消息压缩模块（新功能，已端到端验证）: **msg_condense.py**（纯函数）：`common_prefix_len(a,b)` 字符级公共前缀；`condense(new, prev, min_prefix=2000, min_savings=1200)` 前缀+节省双门槛，不达标原样返回（安全降级）。占位符： "〔上下文压缩说明：…与本会话此前消息中已发送的内容完全相同（共省略 N 字符）…以下为新增内容：〕"。 措辞用"此前消息"不用"上一条"——压缩可链式发生，完整内容分布在此前多条消息里。
+- msg_condense 会话消息压缩模块（新功能，已端到端验证）: **browser_core.py 集成**（execute_workflow）：
+- msg_condense 会话消息压缩模块（新功能，已端到端验证）: **browser_core.py 集成**（execute_workflow）： > 压缩点：`ToolRoundBuilder.build` 之后、`LongPromptRouter.decide` 之前（压缩后长度下降， decide 自然选 DIRECT，不再触发分片/上传）
+- msg_condense 会话消息压缩模块（新功能，已端到端验证）: **browser_core.py 集成**（execute_workflow）： > 仅 `is_continuation and not session_new` 时查找压缩（新会话新 tab 必须全量发）； 但 fp 键计算无条件执行——**首轮不记录基准则下一轮永远没得比（踩过）**
+- msg_condense 会话消息压缩模块（新功能，已端到端验证）: **browser_core.py 集成**（execute_workflow）： > 缓存 `BrowserCore._fp_last_payload: {domain:fp → 交付文本}`，上限 8 条 LRU 淘汰
+- msg_condense 会话消息压缩模块（新功能，已端到端验证）: **browser_core.py 集成**（execute_workflow）： > 记录时机：finally 中 `_send_confirmed=True` 才记（`_verify_and_recover_send` 所有失败 路径都 raise WorkflowError，正常返回=发送已确认/已恢复）
+
+Recurring themes:
+- user.md
+- 用户
+- 明确
+- 要求
+- tab
+- 长期
+
+Diary continuity context:
+- Current sweep: 2026-11-05
+- Recent diary entries already written:
+  - A memory trace surfaced, but details were unavailable in this run.
+  - A memory trace surfaced, but details were unavailable in this run.
+- Prefer a fresh angle; do not replay the same first-day framing unless newer fragments change it.

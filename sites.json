@@ -1,0 +1,354 @@
+{
+  "lmarena.ai": {
+    "selectors": {
+      "input_box": "textarea[name=\"message\"]",
+      "send_btn": "button[type=\"submit\"]",
+      "result_container": ".no-scrollbar .prose",
+      "new_chat_btn": "a[href*=\"/c/new\"]",
+      "message_wrapper": null,
+      "generating_indicator": null
+    },
+    "workflow": [
+      {
+        "action": "CLICK",
+        "target": "new_chat_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "WAIT",
+        "target": "",
+        "optional": false,
+        "value": "0.5"
+      },
+      {
+        "action": "FILL_INPUT",
+        "target": "input_box",
+        "optional": false,
+        "value": null
+      },
+      {
+        "action": "CLICK",
+        "target": "send_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "KEY_PRESS",
+        "target": "Enter",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "STREAM_WAIT",
+        "target": "result_container",
+        "optional": false,
+        "value": null
+      }
+    ],
+    "stealth": true
+  },
+  "chatgpt.com": {
+    "selectors": {
+      "input_box": "css:div.ProseMirror[contenteditable=\"true\"]",
+      "send_btn": "[data-testid=\"send-button\"]",
+      "result_container": "css:div[class*=\"DilRenderer\"]",
+      "new_chat_btn": "css:button[aria-label=\"新聊天\"]",
+      "message_wrapper": "[data-turn-key]",
+      "generating_indicator": null
+    },
+    "workflow": [
+      {
+        "action": "CLICK",
+        "target": "new_chat_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "WAIT",
+        "target": "",
+        "optional": false,
+        "value": "0.5"
+      },
+      {
+        "action": "FILL_INPUT",
+        "target": "input_box",
+        "optional": false,
+        "value": null
+      },
+      {
+        "action": "CLICK",
+        "target": "send_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "STREAM_WAIT",
+        "target": "result_container",
+        "optional": false,
+        "value": null
+      }
+    ],
+    "stealth": true
+  },
+  "grok.com": {
+    "selectors": {
+      "input_box": "div.tiptap[contenteditable=\"true\"]",
+      "send_btn": "button[aria-label=\"提交\"]",
+      "result_container": "div[id^=\"response-\"].items-start .response-content-markdown",
+      "new_chat_btn": "a[aria-label=\"主页\"]",
+      "message_wrapper": "div[id^=\"response-\"]",
+      "generating_indicator": null
+    },
+    "workflow": [
+      {
+        "action": "CLICK",
+        "target": "new_chat_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "WAIT",
+        "target": "",
+        "optional": false,
+        "value": "0.5"
+      },
+      {
+        "action": "FILL_INPUT",
+        "target": "input_box",
+        "optional": false,
+        "value": null
+      },
+      {
+        "action": "CLICK",
+        "target": "send_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "KEY_PRESS",
+        "target": "Enter",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "STREAM_WAIT",
+        "target": "result_container",
+        "optional": false,
+        "value": null
+      }
+    ],
+    "stealth": false
+  },
+  "chat.deepseek.com": {
+    "selectors": {
+      "input_box": "textarea._27c9245",
+      "send_btn": ".bf38813a > div:last-child > .ds-icon-button",
+      "result_container": ".ds-message .ds-markdown",
+      "new_chat_btn": "._5a8ac7a",
+      "upload_btn": "div[role='button'].ds-button--iconLabelPrimary",
+      "file_input": "input[type='file']"
+    },
+    "workflow": [
+      {
+        "action": "CLICK",
+        "target": "new_chat_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "WAIT",
+        "target": "",
+        "optional": false,
+        "value": "0.5"
+      },
+      {
+        "action": "FILL_INPUT",
+        "target": "input_box",
+        "optional": false,
+        "value": null
+      },
+      {
+        "action": "CLICK",
+        "target": "send_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "KEY_PRESS",
+        "target": "Enter",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "STREAM_WAIT",
+        "target": "result_container",
+        "optional": false,
+        "value": null
+      }
+    ],
+    "stealth": true
+  },
+  "chat.z.ai": {
+    "selectors": {
+      "input_box": "#chat-input",
+      "send_btn": "#send-message-button",
+      "result_container": ".chat-assistant",
+      "new_chat_btn": "#new-chat-button",
+      "message_wrapper": "div[id^=\"message-\"]:not([id$=\"-start\"])",
+      "generating_indicator": "span.size-3.rounded-xs",
+      "upload_btn": "#upload-file-button",
+      "file_input": "input[type='file']"
+    },
+    "workflow": [
+      {
+        "action": "CLICK",
+        "target": "new_chat_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "WAIT",
+        "target": "",
+        "optional": false,
+        "value": "0.5"
+      },
+      {
+        "action": "FILL_INPUT",
+        "target": "input_box",
+        "optional": false,
+        "value": null
+      },
+      {
+        "action": "CLICK",
+        "target": "send_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "KEY_PRESS",
+        "target": "Enter",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "STREAM_WAIT",
+        "target": "result_container",
+        "optional": false,
+        "value": null
+      }
+    ],
+    "stealth": true
+  },
+  "poe.com": {
+    "entry_url": "https://poe.com/Assistant",
+    "MODEL_URL_TEMPLATE": "https://poe.com/{model}",
+    "selectors": {
+      "input_box": "textarea[class*=\"GrowingTextArea\"]",
+      "send_btn": "button[data-button-send=\"true\"]",
+      "result_container": "[class*=\"Message_row\"]:not([class*=\"rightSide\"])",
+      "new_chat_btn": "a[href=\"/\"]",
+      "message_wrapper": "[class*=\"Message_row\"]",
+      "generating_indicator": "button[aria-label=\"停止\"], button[aria-label=\"Stop\"]",
+      "upload_btn": "button[aria-label=\"选择附件\"]",
+      "file_input": "input[type='file']"
+    },
+    "workflow": [
+      {
+        "action": "NAVIGATE",
+        "target": "input_box",
+        "optional": false,
+        "value": "https://poe.com/Assistant"
+      },
+      {
+        "action": "WAIT",
+        "target": "",
+        "optional": false,
+        "value": "1.0"
+      },
+      {
+        "action": "FILL_INPUT",
+        "target": "input_box",
+        "optional": false,
+        "value": null
+      },
+      {
+        "action": "CLICK",
+        "target": "send_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "KEY_PRESS",
+        "target": "Enter",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "STREAM_WAIT",
+        "target": "result_container",
+        "optional": false,
+        "value": null
+      }
+    ],
+    "stealth": true,
+    "upload_config": {
+      "enabled": false
+    },
+    "CHUNK_CHARS": 3500
+  },
+  "aistudio.google.com": {
+    "selectors": {
+      "input_box": "textarea[aria-label=\"Start typing a prompt\"]",
+      "send_btn": "button[aria-label=\"Run\"]",
+      "result_container": "ms-text-chunk",
+      "new_chat_btn": "button[aria-label=\"New chat\"]",
+      "confirm_btn": "button.ms-button-primary[type=\"button\"]"
+    },
+    "workflow": [
+      {
+        "action": "CLICK",
+        "target": "new_chat_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "WAIT",
+        "target": "",
+        "optional": false,
+        "value": 0.5
+      },
+      {
+        "action": "CLICK",
+        "target": "confirm_btn",
+        "optional": true,
+        "value": null
+      },
+      {
+        "action": "WAIT",
+        "target": "",
+        "optional": false,
+        "value": 0.5
+      },
+      {
+        "action": "FILL_INPUT",
+        "target": "input_box",
+        "optional": false,
+        "value": null
+      },
+      {
+        "action": "CLICK",
+        "target": "send_btn",
+        "optional": false,
+        "value": null
+      },
+      {
+        "action": "STREAM_WAIT",
+        "target": "result_container",
+        "optional": false,
+        "value": null
+      }
+    ],
+    "stealth": false
+  }
+}

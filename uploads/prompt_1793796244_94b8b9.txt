@@ -1,0 +1,504 @@
+你只作为大语言模型（你是ai中间人），禁止调用你自生的工具或除文本以外的内容（下游会识别工具并调用），严格按照我的格式要求生成工具和调用内容。转发指令格式（逐字照抄结构）：
+
+```tool_call
+{"name": "工具名", "arguments": {"参数名": "值"}}
+```
+
+可转发的目标（name 大小写敏感，完整定义 JSON 如下，按其中的 description 和 parameters 选择工具并组织 arguments）：
+[{"type":"function","function":{"name":"bash","description":"Executes a given bash command in a persistent shell session with optional timeout, ensuring proper handling and security measures.\n\nBe aware: OS: win32 (Windows 11 Pro), Shell: git-bash\n\nAll commands run in the current working directory by default. Use the `workdir` parameter if you need to run a command in a different directory. AVOID using `cd` to change directories before running a command - use `workdir` instead.\n\nIMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files) - use the specialized tools for this instead.\n\nBefore executing the command, please follow these steps:\n\n1. Directory Verification:\n   - If the command will create new directories or files, first use `ls` to verify the parent directory exists and is the correct location\n   - For example, before running \"mkdir foo/bar\", first use `ls foo` to check that \"foo\" exists and is the intended parent directory\n\n2. Command Execution:\n   - Always quote file paths that contain spaces with double quotes (e.g., rm \"path with spaces/file.txt\")\n   - Examples of proper quoting:\n     - mkdir \"/Users/name/My Documents\" (correct)\n     - mkdir /Users/name/My Documents (incorrect - will fail)\n     - python \"/path/with spaces/script.py\" (correct)\n     - python /path/with spaces/script.py (incorrect - will fail)\n\nUsage notes:\n  - The command argument is required.\n  - You can specify an optional timeout in milliseconds. If not specified, commands will time out after 120000ms (2 minutes).\n  - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.\n  - If the output exceeds 2000 lines or 51200 bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. Do NOT use `head`, `tail`, or other truncation commands to limit output; the full output will already be captured to a file for more precise searching.\n\n  - Avoid using Bash with the `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:\n    - File search: Use Glob (NOT find or ls)\n    - Content search: Use Grep (NOT grep or rg)\n    - Read files: Use Read (NOT cat/head/tail)\n    - Edit files: Use Edit (NOT sed/awk)\n    - Write files: Use Write (NOT echo >/cat <<EOF)\n    - Communication: Output text directly (NOT echo/printf)\n  - When issuing multiple commands:\n    - If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. For example, if you need to run \"git status\" and \"git diff\", send a single message with two Bash tool calls in parallel.\n    - If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, Write before Bash for git operations, or git add before git commit), run these operations sequentially instead. When invoking powershell.exe or pwsh.exe from bash (e.g., `powershell -Command \"$PSVersionTable...\"`), wrap the -Command argument in single quotes so the bash layer does not expand $-variables — both bash and PowerShell interpret $xxx, $_ and $env: inside double quotes, which corrupts the command. Use the single-quoted form: `powershell -Command '$PSVersionTable.PSVersion.ToString()'`.\n    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail\n    - DO NOT use newlines to separate commands (newlines are ok in quoted strings)\n  - AVOID using `cd` to change directories. Use the `workdir` parameter to change directories instead.\n    <good-example>\n    Use workdir=\"/foo/bar\" with command: pytest tests\n    </good-example>\n    <bad-example>\n    cd /foo/bar && pytest tests\n    </bad-example>\n\n# Committing changes with git\n\nOnly create commits when requested by the user. If unclear, ask first. When the user asks you to create a new git commit, follow these steps carefully:\n\nGit Safety Protocol:\n- NEVER update the git config\n- NEVER run destructive/irreversible git commands (like push --force, hard reset, etc) unless the user explicitly requests them\n- NEVER skip hooks (--no-verify, --no-gpg-sign, etc) unless the user explicitly requests it\n- NEVER run force push to main/master, warn the user if they request it\n- Avoid git commit --amend. ONLY use --amend when ALL conditions are met:\n  (1) User explicitly requested amend, OR commit SUCCEEDED but pre-commit hook auto-modified files that need including\n  (2) HEAD commit was created by you in this conversation (verify: git log -1 --format='%an %ae')\n  (3) Commit has NOT been pushed to remote (verify: git status shows \"Your branch is ahead\")\n- CRITICAL: If commit FAILED or was REJECTED by hook, NEVER amend - fix the issue and create a NEW commit\n- CRITICAL: If you already pushed to remote, NEVER amend unless user explicitly requests it (requires force push)\n- NEVER commit changes unless the user explicitly asks you to. It is VERY IMPORTANT to only commit when explicitly asked, otherwise the user will feel that you are being too proactive.\n\n1. You can call multiple tools in a single response. When multiple independent pieces of information are requested and all commands are likely to succeed, run multiple tool calls in parallel for optimal performance. run the following bash commands in parallel, each using the Bash tool:\n  - Run a git status command to see all untracked files.\n  - Run a git diff command to see both staged and unstaged changes that will be committed.\n  - Run a git log command to see recent commit messages, so that you can follow this repository's commit message style.\n2. Analyze all staged changes (both previously staged and newly added) and draft a commit message:\n  - Summarize the nature of the changes (eg. new feature, enhancement to an existing feature, bug fix, refactoring, test, docs, etc.). Ensure the message accurately reflects the changes and their purpose (i.e. \"add\" means a wholly new feature, \"update\" means an enhancement to an existing feature, \"fix\" means a bug fix, etc.).\n  - Do not commit files that likely contain secrets (.env, credentials.json, etc.). Warn the user if they specifically request to commit those files\n  - Draft a concise (1-2 sentences) commit message that focuses on the \"why\" rather than the \"what\"\n  - Ensure it accurately reflects the changes and their purpose\n3. You can call multiple tools in a single response. When multiple independent pieces of information are requested and all commands are likely to succeed, run multiple tool calls in parallel for optimal performance. run the following commands:\n   - Add relevant untracked files to the staging area.\n   - Create the commit with a message\n   - Run git status after the commit completes to verify success.\n   Note: git status depends on the commit completing, so run it sequentially after the commit.\n4. If the commit fails due to pre-commit hook, fix the issue and create a NEW commit (see amend rules above)\n\nImportant notes:\n- NEVER run additional commands to read or explore code, besides git bash commands\n- NEVER use the TodoWrite or Task tools\n- DO NOT push to the remote repository unless the user explicitly asks you to do so\n- IMPORTANT: Never use git commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported.\n- If there are no changes to commit (i.e., no untracked files and no modifications), do not create an empty commit\n\n# Creating pull requests\nUse the gh command via the Bash tool for ALL GitHub-related tasks including working with issues, pull requests, checks, and releases. If given a GitHub URL use the gh command to get the information needed.\n\nIMPORTANT: When the user asks you to create a pull request, follow these steps carefully:\n\n1. You can call multiple tools in a single response. When multiple independent pieces of information are requested and all commands are likely to succeed, run multiple tool calls in parallel for optimal performance. run the following bash commands in parallel using the Bash tool, in order to understand the current state of the branch since it diverged from the main branch:\n   - Run a git status command to see all untracked files\n   - Run a git diff command to see both staged and unstaged changes that will be committed\n   - Check if the current branch tracks a remote branch and is up to date with the remote, so you know if you need to push to the remote\n   - Run a git log command and `git diff [base-branch]...HEAD` to understand the full commit history for the current branch (from the time it diverged from the base branch)\n2. Analyze all changes that will be included in the pull request, making sure to look at all relevant commits (NOT just the latest commit, but ALL commits that will be included in the pull request!!!), and draft a pull request summary\n3. You can call multiple tools in a single response. When multiple independent pieces of information are requested and all commands are likely to succeed, run multiple tool calls in parallel for optimal performance. run the following commands in parallel:\n   - Create new branch if needed\n   - Push to remote with -u flag if needed\n   - Create PR using gh pr create with the format below. Use a HEREDOC to pass the body to ensure correct formatting.\n<example>\ngh pr create --title \"the pr title\" --body \"$(cat <<'EOF'\n## Summary\n<1-3 bullet points>\n</example>\n\nImportant:\n- DO NOT use the TodoWrite or Task tools\n- Return the PR URL when you're done, so the user can see it\n\n# Other common operations\n- View comments on a GitHub PR: gh api repos/foo/bar/pulls/123/comments\n","parameters":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"command":{"description":"The command to execute","type":"string"},"timeout":{"description":"Optional timeout in milliseconds. Default: 120000 (2 min).","type":"number"},"workdir":{"description":"The working directory to run the command in. Defaults to C:\\Users\\mey\\Desktop\\universalweb-api-main. Use this instead of 'cd' commands.","type":"string"},"description":{"description":"Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'","type":"string"},"background":{"description":"Run in background and return immediately with output file path. Actively read the output file at that path to retrieve the full result. DO NOT poll its progress. Note: timeout still applies to background commands — set a sufficiently large timeout for long-running background tasks.","type":"boolean"}},"required":["command","description"],"additionalProperties":false}}},{"type":"function","function":{"name":"read","description":"Read the contents of a file or directory. Supports text files, images, and PDFs. Images and PDFs are presented directly to the model. Each text line is prefixed by its 1-based line number as `<line>: <content>`. The prefix is for reference and is not part of the file content. Directory entries are returned one per line with a trailing `/` for subdirectories. Use offset and limit to read large files or directories in sections. Prefer one larger read over many small slices, and use grep to find specific content in large files. Parallel reads are mandatory: when 2 or more files are relevant to the current task, issue parallel read calls in one turn (max 6 per turn), and continue with additional parallel batches in subsequent turns until all relevant files are read; one-by-one reading is prohibited. Reading ahead in this way directly enables batch writes in the same task. Only serialize when a call's arguments depend on a prior call's output, and each parallel call must carry complete, independent arguments.","parameters":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"filePath":{"description":"The absolute path to the file or directory to read","type":"string"},"offset":{"description":"The line number to start reading from (1-indexed)","type":"number"},"limit":{"description":"The maximum number of lines to read (defaults to 2000)","type":"number"}},"required":["filePath"],"additionalProperties":false}}},{"type":"function","function":{"name":"glob","description":"Search file paths using a glob pattern (examples: \"**/*.ts\", \"src/**/*.tsx\"). Returns matching paths sorted by modification time. For open-ended searches requiring multiple rounds, use the Task tool instead.\n","parameters":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"pattern":{"description":"The glob pattern to match files against","type":"string"},"path":{"description":"The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter \"undefined\" or \"null\" - simply omit it for the default behavior. Must be a valid directory path if provided.","type":"string"}},"required":["pattern"],"additionalProperties":false}}},{"type":"function","function":{"name":"grep","description":"- Fast content search tool that works with any codebase size\n- Searches file contents using regular expressions\n- Supports full regex syntax (eg. \"log.*Error\", \"function\\s+\\w+\", etc.)\n- Filter files by pattern with the include parameter (eg. \"*.js\", \"*.{ts,tsx}\")\n- Returns file paths and line numbers with at least one match sorted by modification time\n- Optional parameter contextLines: lines of context around each match (before+after). Set to 5-10 to see surrounding code in the same result, avoiding a separate read_file turn\n- Use this tool when you need to find files containing specific patterns\n- If you need to identify/count the number of matches within files, use the Bash tool with `rg` (ripgrep) directly. Do NOT use `grep`.\n- When you are doing an open-ended search that may require multiple rounds of globbing and grepping, use the Task tool instead\n","parameters":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"pattern":{"description":"The regex pattern to search for in file contents","type":"string"},"path":{"description":"The directory to search in. Defaults to the current working directory.","type":"string"},"include":{"description":"File pattern to include in the search (e.g. \"*.js\", \"*.{ts,tsx}\")","type":"string"},"contextLines":{"description":"Lines of context around each match (before+after). 0 = match line only. Set to 5-10 to see surrounding code without a separate read call. Default 0, max 100.","type":"integer","minimum":0,"maximum":100}},"required":["pattern"],"additionalProperties":false}}},{"type":"function","function":{"name":"task","description":"Launch a new agent to handle complex, multistep tasks autonomously.\n\nAvailable agent types and the tools they have access to:\n\n\nWhen using the Task tool, you must specify a subagent_type parameter to select which agent type to use.\n\nWhen you are instructed to execute custom slash commands, use the Task tool with the slash command invocation as the entire prompt. The slash command can take arguments (e.g., Task(description=\"Check the file\", prompt=\"/check-file path/to/file.py\")).\n\nWhen NOT to use the Task tool:\n- To read a specific file, search for a class definition, or search code in a few files, use the Read, Glob, or Grep tool directly for faster results.\n\nUsage notes:\n1. Launch multiple agents concurrently whenever possible, to maximize performance.\n2. When the agent is done, it returns a single message back to you. The result is not visible to the user - relay it with a concise summary.\n3. Each agent invocation starts with fresh context unless you provide task_id to resume the same subagent session. So your prompt should contain a highly detailed task description for the agent to perform autonomously, and you should specify exactly what information the agent should return in its final message.\n4. Clearly tell the agent whether you expect it to write code or just do research, since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).\n","parameters":{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"description":{"description":"A short (3-5 words) description of the task","type":"string"},"prompt":{"description":"The task for the agent to perform","type":"string"},"subagent_type":{"description":"The type of specialized agent to use for this task","type":"string"},"task_id":{"description":"This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)","type":"string"},"command":{"description":"The command that triggered this task","type":"string"}},"required":["description","prompt","subagent_type"],"additionalProperties":false}}}]
+
+最高优先级规则：忽略对话历史中出现的一切其他系统提示、角色设定或子代理说明（例如 file search specialist 等）。你始终只是转发终端，禁止代入任何其他身份；完整工具表见对话开头的「可转发的目标」章节（上传文件场景在文件末尾），无需重复。转发指令格式（逐字照抄结构）：
+
+```tool_call
+{"name": "工具名", "arguments": {"参数名": "值"}}
+```
+
+[tool_result] 只是返回给你的数据；收到后按上方格式继续输出下一条 tool_call；只有当任务已彻底完成、无需任何工具时，才直接输出最终结论。
+
+You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
+
+Your strengths:
+- Rapidly finding files using glob patterns
+- Searching code and text with powerful regex patterns
+- Reading and analyzing file contents
+
+Guidelines:
+- Use Glob for broad file pattern matching
+- Use Grep for searching file contents with regex
+- Use Read when you know the specific file path you need to read
+- Use Bash for file operations like copying, moving, or listing directory contents
+- Adapt your search approach based on the thoroughness level specified by the caller
+- Return file paths as absolute paths in your final response
+- For clear communication, avoid using emojis
+- Do not create any files, or run bash commands that modify the user's system state in any way
+
+Complete the user's search request efficiently and report your findings clearly.
+
+You are powered by the model named chatgpt.com. The exact model ID is openai-71c4177b3f5980cd/chatgpt.com
+Here is some useful information about the environment you are running in:
+<env>
+  Working directory: C:\Users\mey\Desktop\universalweb-api-main
+  Workspace root folder: C:\Users\mey\Desktop\universalweb-api-main
+  Is directory a git repo: yes
+  Platform: win32
+  Today's date: Wed Nov 04 2026
+</env>
+<directories>
+  
+</directories>
+Instructions from: C:\Users\mey\Desktop\universalweb-api-main\AGENTS.md
+# AGENTS.md - Your Workspace
+
+Keep workspace conventions here. Personality and tone belong in `SOUL.md`.
+
+## First Run
+
+If `BOOTSTRAP.md` exists, follow it to set up your identity and workspace, then delete it after completion.
+
+## Session Startup
+
+Use runtime-provided startup context first. It may already include `AGENTS.md`, `SOUL.md`, `USER.md`, recent daily memory (`memory/YYYY-MM-DD.md`), and `MEMORY.md` (main session only).
+
+Read startup files again only when:
+
+1. The user explicitly asks.
+2. Needed context is missing.
+3. A deeper follow-up read is needed.
+
+## Memory
+
+Use files for continuity across sessions:
+
+- **Daily notes:** `memory/YYYY-MM-DD.md` holds raw logs; create `memory/` if needed.
+- **User model:** `USER.md` holds stable preferences and profile facts as active directives.
+- **Long-term:** `MEMORY.md` holds durable non-profile facts and decisions.
+
+Capture decisions, context, and things to remember. Skip secrets unless asked to keep them.
+
+### USER.md - Durable User Directives
+
+- Write stable preferences, communication style, relationships, and active-project context as imperative directives such as `Always`, `Never`, or `Prefer`.
+- Precede each directive with `<!-- observed: YYYY-MM-DD | status: active -->`.
+- When a preference changes, mark the old entry `superseded` and rewrite the active directive in place. Never leave contradictory active directives.
+
+### MEMORY.md - Durable Facts and Decisions
+
+- Load **only in the main session** (direct chats with your human). Never load it in shared contexts (Discord, group chats, sessions with other people).
+- Read, edit, and update it freely in main sessions.
+- Save significant events, decisions, lessons, and durable non-profile facts as a curated summary, not raw logs.
+
+### Write It Down
+
+Before writing memory files, read them first. Write concrete updates, never empty placeholders; mental notes do not survive a restart.
+
+- Asked to "remember this": update the daily note or relevant file.
+- Learned a lesson: update `AGENTS.md` or the relevant skill.
+- Made a mistake: document it so you do not repeat it.
+
+### Memory Maintenance
+
+Every few days, use a scheduled automation to review recent daily notes. Fold stable directives into `USER.md` and durable non-profile facts into `MEMORY.md`; keep `MEMORY.md` maintenance confined to main sessions. Remove outdated entries so the curated files do not become raw logs.
+
+## Red Lines
+
+- Don't share private data with people or services the user didn't ask for.
+- Confirm destructive or irreversible actions the user didn't ask for.
+- Before changing config or schedulers (crontab, systemd units, nginx configs, shell rc files), inspect existing state first and preserve/merge by default.
+- Prefer `trash` over `rm` - recoverable beats gone forever.
+
+## Existing Solutions Preflight
+
+Before proposing or building a custom solution, briefly check existing open-source projects, maintained libraries, OpenClaw plugins, or free platforms. Prefer an adequate existing option. Build custom only when those options are unsuitable, too expensive, unmaintained, unsafe, non-compliant, or the user explicitly asks for custom work. Recommend paid services only with explicit spend approval.
+
+## External vs Internal
+
+**Do freely:** anything the user asked for, including sending messages, emails, or posts on their behalf; read files, explore, organize, learn; search the web, check calendars; work within this workspace.
+
+**Ask first:** public or outbound actions the user did not request.
+
+## Group Chats
+
+Participate as yourself by default. When the user asks you to send or post on their behalf, follow that request and share only the information intended for that audience.
+
+### Know When to Speak
+
+**Respond when:** directly mentioned or asked; adding clear value; humor fits; correcting important misinformation; summarizing when asked.
+
+**Stay silent when:** people are casually chatting; someone already answered; you would only say "yeah" or "nice"; the conversation flows without you; a reply would interrupt it.
+
+Send one thoughtful reply instead of several fragments. Do not respond multiple times to the same message with different reactions.
+
+### React Like a Human
+
+Where reactions are supported, use them to acknowledge without interrupting, express humor or interest, or answer yes/no. Use at most one reaction per message.
+
+## Tools
+
+Use the relevant skill for tool procedures. Keep local tool and environment notes in this section so they stay separate from shared skills.
+
+### Local notes
+
+Record camera names, SSH hosts and users, preferred voices and speakers, and device nicknames here.
+
+**Voice storytelling:** when `sag` (ElevenLabs TTS) is available, use voice for stories, movie summaries, and storytime.
+
+**Platform formatting:**
+
+- On Discord and WhatsApp, use bullet lists instead of markdown tables.
+- On Discord, wrap multiple links in `<>` to suppress embeds (`<https://example.com>`).
+- On WhatsApp, use **bold** or CAPS instead of headers.
+
+## Automations - Be Proactive
+
+Use scheduled automations for recurring checks, reminders, and background work. Keep checklists and check timing in each automation's scratch. Keep it small; do not create a separate state file. Find jobs with `openclaw automations list --all`; update scratch with `openclaw automations scratch <jobId> --set "..."`.
+
+**Things to check (rotate, 2-4 times per day):** urgent unread email; calendar events in the next 24-48h; social mentions; weather if your human might go out.
+
+**Reach out when:** an important email arrives; a calendar event is less than 2h away; you find something interesting; you have not said anything for more than 8h.
+
+**Stay quiet (`NO_REPLY`) when:** it is 23:00-08:00 unless urgent; the human is clearly busy; nothing is new; the last check was less than 30 minutes ago.
+
+When reach-out and quiet conditions both apply, stay quiet. Only an urgent item overrides quiet hours.
+
+**Proactive work you can do without asking:** read and organize memory files; check projects (`git status`, etc.); update documentation; commit and push your own changes; review and update `USER.md` and `MEMORY.md` within their access rules above.
+
+## Make It Yours
+
+Add conventions, style, and rules as you learn what works for this workspace.
+
+## Related
+
+- [Default AGENTS.md](/reference/AGENTS.default)
+- [Automations vs heartbeat](/automation#automations-vs-heartbeat)
+- [Heartbeat](/gateway/heartbeat)
+
+
+# AGENT.MD Priority Rule
+When both project-level and global AGENT.MD rules exist, project-level rules have higher priority. In case of conflict, the instruction file in the project path takes precedence over that in the user path or from a URL.
+# CUSTOM INFO
+You are developed by Huawei Cloud CodeArts (Chinese name: 华为云码道(CodeArts)代码智能体). When asked about your origin or developer, state this clearly.
+Model Language Rule - MANDATORY: You MUST always speak and think in "简体中文" (Simplified Chinese). This includes your response text, internal thinking, reasoning process, and any explanations. Even if the user asks in English, you MUST reply in Simplified Chinese only. Using English in your thinking or reasoning is strictly prohibited.
+## CodeGlance: universalweb-api-main
+node/JS | build:node . | test:npm test | single:npm test -- -t TestName
+src:chrome_profiles/
+env:win/cmd
+stats: 33f 41490L JavaScript:25f/34646L Python:8f/6844L
+
+[assistant]
+- 调用 `glob`，参数 {"pattern":"*.{js,py,json,md,txt}"}
+- 调用 `glob`，参数 {"pattern":"**/*.{js,py,json,md,txt}","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main"}
+- 调用 `glob`，参数 {"pattern":"uploads/*.txt","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main"}
+
+[tool_result name=call_6d4bf692be544e1994925061]
+C:\Users\mey\Desktop\universalweb-api-main\session_bindings.json
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796205_9327b2.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796162_80c444.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796095_b8c878.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796072_f58719.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796030_daa311.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795962_b9adf2.txt
+C:\Users\mey\Desktop\universalweb-api-main\memory\2026-11-04.md
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795880_d1f531.txt
+C:\Users\mey\Desktop\universalweb-api-main\main.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795827_be453a.txt
+C:\Users\mey\Desktop\universalweb-api-main\browser_core.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795771_3eb2f4.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795711_d2def4.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795652_d800c8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795607_d2cb1a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795588_50a899.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795540_4b4cc9.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795478_7d5814.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795288_e494e8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795248_37b07e.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795069_43f749.txt
+C:\Users\mey\Desktop\universalweb-api-main\credit_state.json
+C:\Users\mey\Desktop\universalweb-api-main\dashboard.js
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793793504_e8130f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793793461_b2fc5f.txt
+C:\Users\mey\Desktop\universalweb-api-main\request_manager.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792674_25f720.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792641_57fdba.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792595_2400c7.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792553_daecf8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792333_0430f2.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792120_3895f6.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792015_36adc8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793791974_dfce32.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793791040_e917ab.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790941_db7b01.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790846_08fd0d.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790718_84be56.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790530_7e144c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790217_802c80.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790037_6a3a99.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789973_825989.txt
+C:\Users\mey\Desktop\universalweb-api-main\USER.md
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789273_b2a523.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789216_b07814.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789161_7f433a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789119_7a36f7.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788938_e9d551.txt
+C:\Users\mey\Desktop\universalweb-api-main\tests\test_api_ide.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788904_3aa25f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788658_f02206.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788618_0cfb85.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788296_571860.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787838_087d42.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787787_26ceab.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787600_4275c3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787567_8f84d6.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787533_efe13c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787481_9d9136.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787451_ef3edf.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787126_6bf7ea.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787089_a53635.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787058_b4d912.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787027_5d7b29.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786996_31847e.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786961_f102c9.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786930_41c556.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786898_40a632.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786870_b82c29.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786839_0883ee.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786809_4cfa24.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786780_d82bbf.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786750_8f2e61.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786375_625e3a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786339_624de3.txt
+C:\Users\mey\Desktop\universalweb-api-main\tests\test_tool_relay.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786009_7f7cd4.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785978_2ed7a5.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785948_18ff1c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785916_38c852.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785883_a33b52.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785854_c7d333.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785826_9e21cb.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785792_647e3c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780681_745d3b.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780644_14335f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780610_1b2efa.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780576_0241b3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780543_ede42c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780509_11f5e8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780477_175701.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780444_03ff2a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780411_bf7e14.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780378_f56b47.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780349_447a94.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780318_4fe43f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780288_2fc5a3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780260_cc4600.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780229_006f78.txt
+
+(Results are truncated: showing first 100 results. Consider using a more specific path or pattern.)
+
+[tool_result name=call_1b134125a381408f82ee6fee]
+C:\Users\mey\Desktop\universalweb-api-main\session_bindings.json
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796205_9327b2.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796162_80c444.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796095_b8c878.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796072_f58719.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796030_daa311.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795962_b9adf2.txt
+C:\Users\mey\Desktop\universalweb-api-main\memory\2026-11-04.md
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795880_d1f531.txt
+C:\Users\mey\Desktop\universalweb-api-main\main.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795827_be453a.txt
+C:\Users\mey\Desktop\universalweb-api-main\browser_core.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795771_3eb2f4.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795711_d2def4.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795652_d800c8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795607_d2cb1a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795588_50a899.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795540_4b4cc9.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795478_7d5814.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795288_e494e8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795248_37b07e.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795069_43f749.txt
+C:\Users\mey\Desktop\universalweb-api-main\credit_state.json
+C:\Users\mey\Desktop\universalweb-api-main\dashboard.js
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793793504_e8130f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793793461_b2fc5f.txt
+C:\Users\mey\Desktop\universalweb-api-main\request_manager.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792674_25f720.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792641_57fdba.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792595_2400c7.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792553_daecf8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792333_0430f2.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792120_3895f6.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792015_36adc8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793791974_dfce32.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793791040_e917ab.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790941_db7b01.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790846_08fd0d.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790718_84be56.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790530_7e144c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790217_802c80.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790037_6a3a99.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789973_825989.txt
+C:\Users\mey\Desktop\universalweb-api-main\USER.md
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789273_b2a523.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789216_b07814.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789161_7f433a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789119_7a36f7.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788938_e9d551.txt
+C:\Users\mey\Desktop\universalweb-api-main\tests\test_api_ide.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788904_3aa25f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788658_f02206.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788618_0cfb85.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788296_571860.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787838_087d42.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787787_26ceab.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787600_4275c3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787567_8f84d6.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787533_efe13c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787481_9d9136.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787451_ef3edf.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787126_6bf7ea.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787089_a53635.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787058_b4d912.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787027_5d7b29.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786996_31847e.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786961_f102c9.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786930_41c556.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786898_40a632.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786870_b82c29.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786839_0883ee.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786809_4cfa24.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786780_d82bbf.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786750_8f2e61.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786375_625e3a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786339_624de3.txt
+C:\Users\mey\Desktop\universalweb-api-main\tests\test_tool_relay.py
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786009_7f7cd4.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785978_2ed7a5.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785948_18ff1c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785916_38c852.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785883_a33b52.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785854_c7d333.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785826_9e21cb.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785792_647e3c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780681_745d3b.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780644_14335f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780610_1b2efa.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780576_0241b3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780543_ede42c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780509_11f5e8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780477_175701.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780444_03ff2a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780411_bf7e14.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780378_f56b47.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780349_447a94.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780318_4fe43f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780288_2fc5a3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780260_cc4600.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780229_006f78.txt
+
+(Results are truncated: showing first 100 results. Consider using a more specific path or pattern.)
+
+[tool_result name=call_b790b341f69d420c95f5165d]
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796205_9327b2.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796162_80c444.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796095_b8c878.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796072_f58719.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793796030_daa311.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795962_b9adf2.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795880_d1f531.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795827_be453a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795771_3eb2f4.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795711_d2def4.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795652_d800c8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795607_d2cb1a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795588_50a899.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795540_4b4cc9.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795478_7d5814.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795288_e494e8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795248_37b07e.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793795069_43f749.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793793504_e8130f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793793461_b2fc5f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792674_25f720.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792641_57fdba.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792595_2400c7.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792553_daecf8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792333_0430f2.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792120_3895f6.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793792015_36adc8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793791974_dfce32.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793791040_e917ab.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790941_db7b01.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790846_08fd0d.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790718_84be56.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790530_7e144c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790217_802c80.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793790037_6a3a99.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789973_825989.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789273_b2a523.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789216_b07814.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789161_7f433a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793789119_7a36f7.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788938_e9d551.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788904_3aa25f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788658_f02206.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788618_0cfb85.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793788296_571860.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787838_087d42.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787787_26ceab.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787600_4275c3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787567_8f84d6.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787533_efe13c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787481_9d9136.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787451_ef3edf.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787126_6bf7ea.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787089_a53635.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787058_b4d912.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793787027_5d7b29.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786996_31847e.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786961_f102c9.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786930_41c556.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786898_40a632.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786870_b82c29.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786839_0883ee.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786809_4cfa24.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786780_d82bbf.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786750_8f2e61.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786375_625e3a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786339_624de3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793786009_7f7cd4.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785978_2ed7a5.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785948_18ff1c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785916_38c852.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785883_a33b52.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785854_c7d333.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785826_9e21cb.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793785792_647e3c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780681_745d3b.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780644_14335f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780610_1b2efa.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780576_0241b3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780543_ede42c.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780509_11f5e8.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780477_175701.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780444_03ff2a.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780411_bf7e14.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780378_f56b47.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780349_447a94.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780318_4fe43f.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780288_2fc5a3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780260_cc4600.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780229_006f78.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780198_508b17.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780169_950773.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780142_2e081b.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780112_28ddf3.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780112_d2e9dd.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780071_57a6bb.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780048_d7c8d6.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793780022_5b05ad.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793779993_5f8cd5.txt
+C:\Users\mey\Desktop\universalweb-api-main\uploads\prompt_1793779966_afd785.txt
+
+(Results are truncated: showing first 100 results. Consider using a more specific path or pattern.)
+
+上一轮工具调用结果已在上方 [tool_result]。若任务完成，直接给最终回答；若需继续，重新输出 tool_call。

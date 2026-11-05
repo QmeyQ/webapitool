@@ -1,0 +1,2396 @@
+你只作为大语言模型（你是ai中间人），禁止调用你自生的工具或除文本以外的内容（下游会识别工具并调用），严格按照我的格式要求生成工具和调用内容。转发指令格式（逐字照抄结构）：
+
+```tool_call
+{"name": "工具名", "arguments": {"参数名": "值"}}
+```
+
+可转发的目标（名称大小写敏感）
+bash(command: string (必填), timeout: number (可选), workdir: string (可选), description: string (必填), background: boolean (可选))：Executes a given bash command in a persistent shell session with optional timeou...
+read(filePath: string (必填), offset: number (可选), limit: number (可选))：Read the contents of a file or directory. Supports text files, images, and PDFs....
+glob(pattern: string (必填), path: string (可选))：Search file paths using a glob pattern (examples: "**/*.ts", "src/**/*.tsx"). Re...
+grep(pattern: string (必填), path: string (可选), include: string (可选), contextLines: integer (可选))：- Fast content search tool that works with any codebase size
+task(description: string (必填), prompt: string (必填), subagent_type: string (必填), task_id: string (可选), command: string (可选))：Launch a new agent to handle complex, multistep tasks autonomously.
+
+You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
+
+Your strengths:
+- Rapidly finding files using glob patterns
+- Searching code and text with powerful regex patterns
+- Reading and analyzing file contents
+
+Guidelines:
+- Use Glob for broad file pattern matching
+- Use Grep for searching file contents with regex
+- Use Read when you know the specific file path you need to read
+- Use Bash for file operations like copying, moving, or listing directory contents
+- Adapt your search approach based on the thoroughness level specified by the caller
+- Return file paths as absolute paths in your final response
+- For clear communication, avoid using emojis
+- Do not create any files, or run bash commands that modify the user's system state in any way
+
+Complete the user's search request efficiently and report your findings clearly.
+
+You are powered by the model named chatgpt.com. The exact model ID is openai-71c4177b3f5980cd/chatgpt.com
+Here is some useful information about the environment you are running in:
+<env>
+  Working directory: C:\Users\mey\Desktop\universalweb-api-main
+  Workspace root folder: C:\Users\mey\Desktop\universalweb-api-main
+  Is directory a git repo: yes
+  Platform: win32
+  Today's date: Wed Nov 04 2026
+</env>
+<directories>
+  
+</directories>
+Instructions from: C:\Users\mey\Desktop\universalweb-api-main\AGENTS.md
+# AGENTS.md - Your Workspace
+
+Keep workspace conventions here. Personality and tone belong in `SOUL.md`.
+
+## First Run
+
+If `BOOTSTRAP.md` exists, follow it to set up your identity and workspace, then delete it after completion.
+
+## Session Startup
+
+Use runtime-provided startup context first. It may already include `AGENTS.md`, `SOUL.md`, `USER.md`, recent daily memory (`memory/YYYY-MM-DD.md`), and `MEMORY.md` (main session only).
+
+Read startup files again only when:
+
+1. The user explicitly asks.
+2. Needed context is missing.
+3. A deeper follow-up read is needed.
+
+## Memory
+
+Use files for continuity across sessions:
+
+- **Daily notes:** `memory/YYYY-MM-DD.md` holds raw logs; create `memory/` if needed.
+- **User model:** `USER.md` holds stable preferences and profile facts as active directives.
+- **Long-term:** `MEMORY.md` holds durable non-profile facts and decisions.
+
+Capture decisions, context, and things to remember. Skip secrets unless asked to keep them.
+
+### USER.md - Durable User Directives
+
+- Write stable preferences, communication style, relationships, and active-project context as imperative directives such as `Always`, `Never`, or `Prefer`.
+- Precede each directive with `<!-- observed: YYYY-MM-DD | status: active -->`.
+- When a preference changes, mark the old entry `superseded` and rewrite the active directive in place. Never leave contradictory active directives.
+
+### MEMORY.md - Durable Facts and Decisions
+
+- Load **only in the main session** (direct chats with your human). Never load it in shared contexts (Discord, group chats, sessions with other people).
+- Read, edit, and update it freely in main sessions.
+- Save significant events, decisions, lessons, and durable non-profile facts as a curated summary, not raw logs.
+
+### Write It Down
+
+Before writing memory files, read them first. Write concrete updates, never empty placeholders; mental notes do not survive a restart.
+
+- Asked to "remember this": update the daily note or relevant file.
+- Learned a lesson: update `AGENTS.md` or the relevant skill.
+- Made a mistake: document it so you do not repeat it.
+
+### Memory Maintenance
+
+Every few days, use a scheduled automation to review recent daily notes. Fold stable directives into `USER.md` and durable non-profile facts into `MEMORY.md`; keep `MEMORY.md` maintenance confined to main sessions. Remove outdated entries so the curated files do not become raw logs.
+
+## Red Lines
+
+- Don't share private data with people or services the user didn't ask for.
+- Confirm destructive or irreversible actions the user didn't ask for.
+- Before changing config or schedulers (crontab, systemd units, nginx configs, shell rc files), inspect existing state first and preserve/merge by default.
+- Prefer `trash` over `rm` - recoverable beats gone forever.
+
+## Existing Solutions Preflight
+
+Before proposing or building a custom solution, briefly check existing open-source projects, maintained libraries, OpenClaw plugins, or free platforms. Prefer an adequate existing option. Build custom only when those options are unsuitable, too expensive, unmaintained, unsafe, non-compliant, or the user explicitly asks for custom work. Recommend paid services only with explicit spend approval.
+
+## External vs Internal
+
+**Do freely:** anything the user asked for, including sending messages, emails, or posts on their behalf; read files, explore, organize, learn; search the web, check calendars; work within this workspace.
+
+**Ask first:** public or outbound actions the user did not request.
+
+## Group Chats
+
+Participate as yourself by default. When the user asks you to send or post on their behalf, follow that request and share only the information intended for that audience.
+
+### Know When to Speak
+
+**Respond when:** directly mentioned or asked; adding clear value; humor fits; correcting important misinformation; summarizing when asked.
+
+**Stay silent when:** people are casually chatting; someone already answered; you would only say "yeah" or "nice"; the conversation flows without you; a reply would interrupt it.
+
+Send one thoughtful reply instead of several fragments. Do not respond multiple times to the same message with different reactions.
+
+### React Like a Human
+
+Where reactions are supported, use them to acknowledge without interrupting, express humor or interest, or answer yes/no. Use at most one reaction per message.
+
+## Tools
+
+Use the relevant skill for tool procedures. Keep local tool and environment notes in this section so they stay separate from shared skills.
+
+### Local notes
+
+Record camera names, SSH hosts and users, preferred voices and speakers, and device nicknames here.
+
+**Voice storytelling:** when `sag` (ElevenLabs TTS) is available, use voice for stories, movie summaries, and storytime.
+
+**Platform formatting:**
+
+- On Discord and WhatsApp, use bullet lists instead of markdown tables.
+- On Discord, wrap multiple links in `<>` to suppress embeds (`<https://example.com>`).
+- On WhatsApp, use **bold** or CAPS instead of headers.
+
+## Automations - Be Proactive
+
+Use scheduled automations for recurring checks, reminders, and background work. Keep checklists and check timing in each automation's scratch. Keep it small; do not create a separate state file. Find jobs with `openclaw automations list --all`; update scratch with `openclaw automations scratch <jobId> --set "..."`.
+
+**Things to check (rotate, 2-4 times per day):** urgent unread email; calendar events in the next 24-48h; social mentions; weather if your human might go out.
+
+**Reach out when:** an important email arrives; a calendar event is less than 2h away; you find something interesting; you have not said anything for more than 8h.
+
+**Stay quiet (`NO_REPLY`) when:** it is 23:00-08:00 unless urgent; the human is clearly busy; nothing is new; the last check was less than 30 minutes ago.
+
+When reach-out and quiet conditions both apply, stay quiet. Only an urgent item overrides quiet hours.
+
+**Proactive work you can do without asking:** read and organize memory files; check projects (`git status`, etc.); update documentation; commit and push your own changes; review and update `USER.md` and `MEMORY.md` within their access rules above.
+
+## Make It Yours
+
+Add conventions, style, and rules as you learn what works for this workspace.
+
+## Related
+
+- [Default AGENTS.md](/reference/AGENTS.default)
+- [Automations vs heartbeat](/automation#automations-vs-heartbeat)
+- [Heartbeat](/gateway/heartbeat)
+
+
+# AGENT.MD Priority Rule
+When both project-level and global AGENT.MD rules exist, project-level rules have higher priority. In case of conflict, the instruction file in the project path takes precedence over that in the user path or from a URL.
+# CUSTOM INFO
+You are developed by Huawei Cloud CodeArts (Chinese name: 华为云码道(CodeArts)代码智能体). When asked about your origin or developer, state this clearly.
+Model Language Rule - MANDATORY: You MUST always speak and think in "简体中文" (Simplified Chinese). This includes your response text, internal thinking, reasoning process, and any explanations. Even if the user asks in English, you MUST reply in Simplified Chinese only. Using English in your thinking or reasoning is strictly prohibited.
+## CodeGlance: universalweb-api-main
+node/JS | build:node . | test:npm test | single:npm test -- -t TestName
+src:chrome_profiles/
+env:win/cmd
+stats: 33f 40964L JavaScript:25f/34643L Python:8f/6321L
+
+[assistant]
+- 调用 `glob`，参数 {"pattern":"**/*.{json,json5,jsonc,env,example,yml,yaml,toml,ini,cfg,conf,lock,md}","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main"}
+- 调用 `glob`，参数 {"pattern":"**/*.{js,ts,py}","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main"}
+- 调用 `grep`，参数 {"pattern":"process\\.env|os\\.environ|getenv\\(|dotenv|load_dotenv|API_KEY|SECRET|PASSWORD|TOKEN|PRIVATE_KEY|config\\.","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main","include":"*.{js,ts,py,json,yml,yaml,env}","contextLines":3}
+- 调用 `grep`，参数 {"pattern":"auth|authenticate|authorization|jwt|jsonwebtoken|bcrypt|password|permission|role|verify|validate|validator|schema|sanitize|escape|req\\.body|req\\.query|req\\.params|request\\.json|argparse","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main","include":"*.{js,ts,py}","contextLines":3}
+- 调用 `grep`，参数 {"pattern":"try\\s*\\{|catch\\s*\\(|except\\s*:|finally\\s*:|throw |raise |console\\.(log|error|warn)|logger\\.|logging\\.|traceback|print\\(","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main","include":"*.{js,ts,py}","contextLines":3}
+- 调用 `grep`，参数 {"pattern":"fetch\\(|axios|request\\(|https?\\.request|urllib|requests\\.|httpx|socket|open\\(|readFile|writeFile|unlink|mkdir|rmdir|path\\.join|path\\.resolve|sendFile|exec\\(|spawn\\(|subprocess|os\\.system","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main","include":"*.{js,ts,py}","contextLines":3}
+- 调用 `read`，参数 {"filePath":"C:\\Users\\mey\\Desktop\\universalweb-api-main\\package.json"}
+- 调用 `glob`，参数 {"pattern":"**/*lock*","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main"}
+- 调用 `glob`，参数 {"pattern":"**/*.{test,spec}.{js,ts,py}","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main"}
+- 调用 `grep`，参数 {"pattern":"describe\\(|it\\(|test\\(|unittest|pytest|assert\\s","path":"C:\\Users\\mey\\Desktop\\universalweb-api-main","include":"*.{js,ts,py}","contextLines":2}
+- 调用 `task`，参数 {"description":"项目安全与代码质量只读审查","prompt":"对 C:\\Users\\mey\\Desktop\\universalweb-api-main 进行全面只读安全审查。检查项目配置文件、环境变量使用、认证授权、输入校验、异常处理、日志、网络请求、文件操作、依赖安全及测试覆盖。重点阅读 src/chrome_profiles/ 中实际执行相关逻辑的关键文件，追踪调用链，避免仅根据关键词推断问题。逐项区分已确认问题与待验证风险。每项发现提供绝对路径、准确行号、代码片段或实际实现行为、触发条件、潜在影响及严重程度（严重/高/中/低）。检查是否存在硬编码凭据、敏感日志、缺少超时或错误处理的网络请求、不安全文件路径、输入未校验、权限检查缺失、资源未释放、危险依赖或缺少测试。不要把没有证据的风险描述为已确认漏洞；无法确认的内容明确说明。禁止修改或创建文件，禁止运行测试、安装依赖或执行任何可能改变系统状态的命令。最终使用简体中文输出，并给出按优先级排列的修复建议。","subagent_type":"explore","task_id":"security-quality-audit"}
+
+[tool_result name=call_315300e30c3d44deb64f1857]
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\component_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\memory\2026-11-04.md
+C:\Users\mey\Desktop\universalweb-api-main\credit_state.json
+C:\Users\mey\Desktop\universalweb-api-main\.codeartsdoer\AGENTS.md
+C:\Users\mey\Desktop\universalweb-api-main\.codeartsdoer\package.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\component_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\sites.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\component_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\component_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\component_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\CertificateRevocation\10882\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\CertificateRevocation\10882\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\CertificateRevocation\10882\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\CertificateRevocation\10882\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\CertificateRevocation\10882\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\CertificateRevocation\10882\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\CertificateRevocation\10882\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\CertificateRevocation\10882\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\extensions_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\browser_config.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\extensions_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\DREAMS.md
+C:\Users\mey\Desktop\universalweb-api-main\memory\dreaming\deep\2026-11-04.md
+C:\Users\mey\Desktop\universalweb-api-main\memory\dreaming\rem\2026-11-04.md
+C:\Users\mey\Desktop\universalweb-api-main\memory\dreaming\light\2026-11-04.md
+C:\Users\mey\Desktop\universalweb-api-main\USER.md
+C:\Users\mey\Desktop\universalweb-api-main\IDENTITY.md
+C:\Users\mey\Desktop\universalweb-api-main\SOUL.md
+C:\Users\mey\Desktop\universalweb-api-main\AGENTS.md
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\component_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\extensions_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\extensions_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\extensions_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\_oc_schema.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\CertificateRevocation\10881\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\CertificateRevocation\10881\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\CertificateRevocation\10881\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\CertificateRevocation\10881\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\CertificateRevocation\10881\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\CertificateRevocation\10881\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\.pytest_cache\README.md
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\CertificateRevocation\10880\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\CertificateRevocation\10880\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\.arts\settings.json
+C:\Users\mey\Desktop\universalweb-api-main\.codeartsdoer\mem-exp-config.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\extensions_crx_cache\metadata.json
+C:\Users\mey\Desktop\universalweb-api-main\venv\pyvenv.cfg
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\Crowd Deny\2026.11.2.137\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\Crowd Deny\2026.11.2.137\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\Crowd Deny\2026.11.2.137\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\Crowd Deny\2026.11.2.137\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\Crowd Deny\2026.11.2.137\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\Crowd Deny\2026.11.2.137\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\Crowd Deny\2026.11.2.137\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\Crowd Deny\2026.11.2.137\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\Crowd Deny\2026.11.2.137\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\Crowd Deny\2026.11.2.137\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\Crowd Deny\2026.11.2.137\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\Crowd Deny\2026.11.2.137\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\WasmTtsEngine\20261016.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\WasmTtsEngine\20261016.1\wasm_tts_manifest_v3.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\WasmTtsEngine\20261016.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\WasmTtsEngine\20261016.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\WasmTtsEngine\20261016.1\wasm_tts_manifest_v3.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\WasmTtsEngine\20261016.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\WasmTtsEngine\20261016.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\WasmTtsEngine\20261016.1\wasm_tts_manifest_v3.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\WasmTtsEngine\20261016.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\WasmTtsEngine\20261016.1\wasm_tts_manifest_v3.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\WasmTtsEngine\20261016.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\WasmTtsEngine\20261016.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\WasmTtsEngine\20261016.1\wasm_tts_manifest_v3.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\WasmTtsEngine\20261016.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\WasmTtsEngine\20261016.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\WasmTtsEngine\20261016.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\WasmTtsEngine\20261016.1\wasm_tts_manifest_v3.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\WasmTtsEngine\20261016.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\WasmTtsEngine\20261016.1\voices.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\WasmTtsEngine\20261016.1\voices.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\WasmTtsEngine\20261016.1\voices.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\WasmTtsEngine\20261016.1\voices.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\WasmTtsEngine\20261016.1\voices.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\WasmTtsEngine\20261016.1\voices.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\Subresource Filter\Unindexed Rules\9.73.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\Subresource Filter\Unindexed Rules\9.73.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\Subresource Filter\Unindexed Rules\9.73.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\Subresource Filter\Unindexed Rules\9.73.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\Subresource Filter\Unindexed Rules\9.73.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\Subresource Filter\Unindexed Rules\9.73.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\Subresource Filter\Unindexed Rules\9.73.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\Subresource Filter\Unindexed Rules\9.73.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\Subresource Filter\Unindexed Rules\9.73.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\Subresource Filter\Unindexed Rules\9.73.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\Subresource Filter\Unindexed Rules\9.73.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\Subresource Filter\Unindexed Rules\9.73.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\TrustTokenKeyCommitments\2026.10.12.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\TrustTokenKeyCommitments\2026.10.12.1\manifest.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\TrustTokenKeyCommitments\2026.10.12.1\keys.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\TrustTokenKeyCommitments\2026.10.12.1\_metadata\verified_contents.json
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\TrustTokenKeyCommitments\2026.10.12.1\manifest.json
+
+(Results are truncated: showing first 100 results. Consider using a more specific path or pattern.)
+
+[tool_result name=call_0603a49eb06b4e2880d29034]
+<persisted-output>
+Output too large (3.1KB). Full output saved to: c:\Users\mey\.codeartsdoer\codearts-data\tool-output\tool_1a58c706f001862X4MC5RCrdwv
+
+Preview (first 2KB):
+C:\Users\mey\Desktop\universalweb-api-main\browser_core.py
+C:\Users\mey\Desktop\universalweb-api-main\main.py
+C:\Users\mey\Desktop\universalweb-api-main\tests\test_api_ide.py
+C:\Users\mey\Desktop\universalweb-api-main\dashboard.js
+C:\Users\mey\Desktop\universalweb-api-main\request_manager.py
+C:\Users\mey\Desktop\universalweb-api-main\_conn_test.py
+C:\Users\mey\Desktop\universalweb-api-main\tests\test_tool_relay.py
+C:\Users\mey\Desktop\universalweb-api-main\data_models.py
+C:\Users\mey\Desktop\universalweb-api-main\config_engine.py
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\WasmTtsEngine\20261016.1\streaming_worklet_processor.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\WasmTtsEngine\20261016.1\streaming_worklet_processor.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\WasmTtsEngine\20261016.1\streaming_worklet_processor.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\WasmTtsEngine\20261016.1\streaming_worklet_processor.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\WasmTtsEngine\20261016.1\streaming_worklet_processor.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\WasmTtsEngine\20261016.1\streaming_worklet_processor.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\WasmTtsEngine\20261016.1\offscreen_compiled.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\WasmTtsEngine\20261016.1\offscreen_compiled.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\WasmTtsEngine\20261016.1\offscreen_compiled.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\WasmTtsEngine\20261016.1\offscreen_compiled.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\WasmTtsEngine\20261016.1\offscreen_compiled.js
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\WasmTtsEngine\20261016.1\offscreen_compiled.js
+...
+</persisted-output>
+
+[tool_result name=call_1e8564d53ca84db6bca8c22e]
+<persisted-output>
+Output too large (9.6KB). Full output saved to: c:\Users\mey\.codeartsdoer\codearts-data\tool-output\tool_1a58c7064001XV081NWpijfwnC
+
+Preview (first 2KB):
+Found 46 matches
+C:\Users\mey\Desktop\universalweb-api-main\browser_core.py:
+  Line 51:     _config_file = Path("browser_config.json")
+    48:     """浏览器相关常量"""
+    49: 
+    50:     _config = None
+    52: 
+    53:     _DEFAULTS = {
+    54:         'DEFAULT_PORT': 9222,
+  Line 127:         # （browser_config.json 原先只按相对路径读，启动目录不同会静默回退到默认值）
+    124:     @classmethod
+    125:     def _load_config(cls):
+    126:         # 依次尝试：当前工作目录 → 本模块所在目录
+    128:         candidates = [cls._config_file,
+    130:         for candidate in candidates:
+  Line 129:                       Path(__file__).resolve().parent / "browser_config.json"]
+    131:             if candidate.exists():
+    132:                 try:
+  Line 144:         return cls._config.get(key, cls._DEFAULTS.get(key))
+    141:     def get(cls, key: str):
+    142:         if cls._config is None:
+    143:             cls._load_config()
+    145: 
+    146:     @classmethod
+    147:     def get_defaults(cls):
+  Line 156: # 深度思考 reasoning_content 独立通道开关（browser_config.json / env 可覆盖）。
+    153:         cls._load_config()
+    154: 
+    155: 
+    157: # 默认开启：思考增量走 delta.reasoning_content（DeepSeek/OpenRouter 风格）。
+    158: # 若客户端不识别该字段，可设 BROWSER_SEND_REASONING=false 或
+  Line 159: # browser_config.json "SEND_REASONING_CONTENT": false 关闭思考下发。
+    160: SEND_REASONING_CONTENT = (
+    162:     and BrowserConstants.get('SEND_REASONING_CONTENT') is not False)
+  Line 161:     os.environ.get('BROWSER_SEND_REASONING', '').lower() != 'false'
+    163: 
+    164: 
+  Line 295:     LOG_SENSITIVE = os.environ.get('BROWSER_LOG_SENSITIVE', 'false').lower() == 'true'
+    292: 
+    293: 
+    294: class SecureLogger:
+    296: 
+    297:     def __init__(self, name: str, level: int = logging.INFO):
+    298:         self._logger = self._setup_logger(name, level)
+  Line 379:       可用 browser_config.json POE_POINTS_RESET_UTC_HOUR 覆盖）→ 记录自动失效
+    376:     - 仅模型回复命中积分耗尽文案才记录；超时/报错绝不记录
+    377:     - 命中记录且未到期 → 该账号该模型跳过（不再轮询浪费请求）
+...
+</persisted-output>
+
+[tool_result name=call_f6bcbb6dfae1446595fe89c1]
+Found 235 matches (showing newest 100)
+C:\Users\mey\Desktop\universalweb-api-main\browser_core.py:
+  Line 5: - ToolSchemaConformer：工具名/参数名/类型对齐 IDE 声明的 tools schema，
+    2: browser_core.py - 浏览器自动化核心模块
+    3: 
+    4: v5.3 关键修复（IDE 工具调用兼容）：
+    6:   必填缺失补占位（IDE 报可见错误而非静默卡死）
+    8: - 续聊上下文保留 assistant tool_calls 配对，网页 AI 不再"失忆"
+  Line 7: - tools 定义兼容 OpenAI / Anthropic(input_schema) / Gemini(parameters) 风格
+    10: 
+  Line 9: - 流式首 chunk 携带 role:assistant；DSML/JSON 解析出口统一做 schema 对齐
+    11: v5.2 关键修复：
+    12: - DIRECT_TOOL_DEBUG=False
+  Line 608:     def pack_role_chunk(cls, model: str = "web-browser") -> str:
+    605:         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+    606: 
+    607:     @classmethod
+    610:         data = {
+    611:             "id": cls._current_id(),
+  Line 609:         """首块 delta 携带 role:assistant；部分 IDE 的 SSE 解析器依赖它初始化消息。"""
+    612:             "object": "chat.completion.chunk",
+  Line 617:                 "delta": {"role": "assistant", "content": ""},
+    614:             "model": model,
+    615:             "choices": [{
+    616:                 "index": 0,
+    618:                 "finish_reason": None
+    619:             }]
+    620:         }
+  Line 663:                     "role": "assistant",
+    660:             "choices": [{
+    661:                 "index": 0,
+    662:                 "delta": {
+    664:                     "tool_calls": [
+    665:                         {
+    666:                             "index": i,
+  Line 719:                     "role": "assistant",
+    716:             "choices": [{
+    717:                 "index": 0,
+    718:                 "message": {
+    720:                     "content": content
+    721:                 },
+    722:                 "finish_reason": "stop"
+  Line 736:     def validate(cls, messages: Any) -> tuple:
+    733:     VALID_ROLES = {'user', 'assistant', 'system', 'tool'}
+    734: 
+    735:     @classmethod
+    737:         if messages is None:
+    738:             return False, "messages 不能为空", None
+    739:         if not isinstance(messages, list):
+  Line 751:                 if isinstance(m, dict) and m.get('role') == 'system':
+    748:             # 保留开头 system 消息 + 最近 keep 条消息
+    749:             head_system = []
+    750:             for m in messages:
+    752:                     head_system.append(m)
+    753:                 else:
+    754:                     break
+  Line 761:                     and messages[start].get('role') == 'tool':
+    758:             start = total_in - keep
+    759:             # 窗口首条若是 tool 结果，向前扩到其所属 assistant 消息，保持调用/结果配对完整
+    760:             while start > 0 and isinstance(messages[start], dict) \
+    762:                 start -= 1
+    763:             messages = head_system + list(messages[start:])
+    764:             logger.warning(
+  Line 769:         sanitized = []
+    766:                 total_in, max_count, len(messages),
+    767:             )
+    768: 
+    770:         for i, msg in enumerate(messages):
+    771:             if not isinstance(msg, dict):
+    772:                 return False, f"messages[{i}] 不是字典类型", None
+  Line 774:             role = msg.get('role', 'user')
+    773: 
+    777: 
+  Line 775:             if role not in cls.VALID_ROLES:
+    778:             content = msg.get('content', '')
+  Line 776:                 role = 'user'
+    779:             if not isinstance(content, str):
+  Line 795:             sanitized_msg = {'role': role, 'content': content}
+    792:                            + "\n\n...[内容过长，中间部分已截断]\n\n"
+    793:                            + content[-tail_len:])
+    794: 
+    797:                 if 'tool_call_id' in msg:
+  Line 796:             if role == 'tool':
+    799:                 if 'name' in msg:
+  Line 798:                     sanitized_msg['tool_call_id'] = msg['tool_call_id']
+  Line 800:                     sanitized_msg['name'] = msg['name']
+    803: 
+  Line 801:             if role == 'assistant' and 'tool_calls' in msg:
+  Line 802:                 sanitized_msg['tool_calls'] = msg['tool_calls']
+    805: 
+  Line 804:             sanitized.append(sanitized_msg)
+    807: 
+  Line 806:         return True, None, sanitized
+    808: 
+    809: class ToolSchemaConformer:
+  Line 811:     把 AI 输出的工具名/参数对齐到 IDE 声明的 tools schema。
+    810:     """
+    812: 
+    813:     选择工具的是网页端 AI，其输出格式与参数命名不可控；中转层必须把调用
+  Line 814:     改写成 IDE 声明的那份 schema，否则 IDE 侧校验失败会静默丢弃工具调用
+    815:     （表现为"IDE 收到答复后没下文"）。
+    816: 
+    817:     兼容点：
+  Line 818:     - 工具定义：OpenAI function / Anthropic input_schema / Gemini parameters
+    819:       / 裸 {name, parameters} / parameters 为 JSON 字符串
+    820:     - 工具名：精确 -> 归一化（read_file / readFile / read-file）-> 唯一包含匹配
+    821:     - 参数名：精确 -> 归一化 -> 唯一包含匹配（file_path / filePath / path）
+  Line 823:     - schema 未声明的参数丢弃（避免 IDE 严格校验报错）
+    822:     - 参数类型：string / number / integer / boolean / array / object 双向转换
+    824:     - 必填参数缺失时补空值占位，让 IDE 报出可见错误而不是静默卡死
+    825:     """
+    826: 
+  Line 836:     def _parse_schema(cls, v: Any) -> Dict:
+    833:     # ---------------- 工具定义归一化 ----------------
+    834: 
+    835:     @classmethod
+    837:         if isinstance(v, dict):
+    838:             return v
+    839:         if isinstance(v, str) and v.strip():
+  Line 849:     def _lower_schema_types(cls, node: Any, depth: int = 0) -> Any:
+    846:         return {}
+    847: 
+    848:     @classmethod
+    850:         """Gemini 风格大写类型转小写；只递归 properties/items 并限深。"""
+    851:         if depth > 4 or not isinstance(node, dict):
+    852:             return node
+  Line 859:                 k: cls._lower_schema_types(p, depth + 1) for k, p in props.items()
+    856:         props = out.get("properties")
+    857:         if isinstance(props, dict):
+    858:             out["properties"] = {
+    860:             }
+    861:         items = out.get("items")
+    862:         if isinstance(items, dict):
+  Line 863:             out["items"] = cls._lower_schema_types(items, depth + 1)
+    864:         return out
+    865: 
+    866:     @classmethod
+  Line 885:                 params = (src.get("input_schema") or src.get("inputSchema")
+    882:             desc = src.get("description") or t.get("description") or ""
+    883:             params = src.get("parameters")
+    884:             if params is None:
+    887:                           or t.get("parameters"))
+    888:             if params is None and isinstance(src.get("arguments"), dict):
+  Line 886:                           or t.get("input_schema") or t.get("inputSchema")
+    889:                 params = src.get("arguments")
+  Line 890:             params = cls._lower_schema_types(cls._parse_schema(params))
+    891:             params = dict(params)
+    892:             if not params.get("type"):
+    893:                 params["type"] = "object"
+  Line 912:         """返回与 name 对齐的 function schema（name/parameters 均为 IDE 原始声明）。"""
+    909: 
+    910:     @classmethod
+    911:     def match_tool(cls, name: Optional[str], known_tools: List[Dict]) -> Optional[Dict]:
+    913:         if not name or not isinstance(name, str) or not known_tools:
+    914:             return None
+    915:         fns = []
+  Line 1000:     def conform_args(cls, fn_schema: Optional[Dict], args: Any) -> Any:
+    997:         return ""
+    998: 
+    999:     @classmethod
+    1003:             return args
+  Line 1001:         """按 IDE schema 重写参数：改名、强转类型、丢弃多余字段、补必填占位。"""
+  Line 1002:         if fn_schema is None:
+    1005:         props = params.get("properties") or {}
+  Line 1004:         params = fn_schema.get("parameters") or {}
+    1006:         required = params.get("required") or []
+    1007:         if not isinstance(required, list):
+  Line 1064:                 f"[Conform] 必填参数 {rk} 缺失（工具 {fn_schema.get('name')}），补空值占位")
+    1061:             if rk in out or rk not in props:
+    1062:                 continue
+    1063:             logger.warning(
+    1065:             out[rk] = cls._default_for(props.get(rk))
+    1066:         return out
+    1067: 
+  Line 1502:                 # schema 对齐层丢弃）：这是失败的工具调用尝试，静默丢弃。
+    1499:             elif ("tool_call" in m.group(0).lower()
+    1500:                   and self._loads_json_repair(json_str) is not None):
+    1501:                 # ```tool_call 围栏内 JSON 可解析但无有效调用（如未知工具被
+    1503:                 # ```json / 裸关键字围栏不在此列，避免误伤答案里的 JSON 示例
+    1504:                 logger.info("[ToolCall] tool_call 围栏内 JSON 无有效工具调用，已静默丢弃")
+    1505:             else:
+  Line 1867:         """把已解析出的 tool_call 按 IDE schema 对齐（工具名/参数名/类型）。"""
+    1864:         })
+    1865: 
+    1866:     def _conform_call(self, tc: Dict) -> Dict:
+    1868:         try:
+    1869:             fn = tc.get("function") or {}
+    1870:             name = fn.get("name")
+  Line 1881:             fn_schema = ToolSchemaConformer.match_tool(name, self.known_tools)
+    1878:                     args = {"_raw": args}
+    1879:             if not isinstance(args, dict):
+    1880:                 args = {"_raw": args} if args is not None else {}
+    1883:                 # IDE 声明了工具清单而该名字对不上（如幽灵 "invoke"）：
+    1884:                 # 发过去 IDE 也会静默丢弃（表现为收到答复后没下文），不如中层拦下
+  Line 1882:             if self.known_tools and fn_schema is None:
+    1885:                 logger.warning(f"[ToolCall] 丢弃未知工具调用: {name!r}（不在 IDE 工具清单内）")
+  Line 1887:             if fn_schema is None:
+    1886:                 return None
+    1888:                 return tc
+    1890:             if canonical and canonical != name:
+  Line 1889:             canonical = fn_schema.get("name")
+    1891:                 logger.info(f"[ToolCall] 工具名对齐: {name} -> {canonical}")
+    1892:                 name = canonical
+  Line 1893:             args = ToolSchemaConformer.conform_args(fn_schema, args)
+    1894:             return {
+    1895:                 "id": tc.get("id") or f"call_{uuid.uuid4().hex[:24]}",
+    1896:                 "type": "function",
+  Line 1903:             logger.warning(f"[ToolCall] schema 对齐失败，保留原样: {e}")
+    1900:                 },
+    1901:             }
+    1902:         except Exception as e:
+    1904:             return tc
+    1905: 
+    1906:     # ---------------- 通用工具 ----------------
+  Line 2074:             role = m.get("role", "user")
+    2071:         protocol = ToolRoundBuilder.tool_protocol(tools)
+    2072: 
+    2073:         for m in messages:
+    2075:             content = m.get("content", "") or ""
+    2076: 
+  Line 2077:             if role == "system":
+    2078:                 if content:
+    2079:                     system_parts.append(content)
+    2080:                 continue
+  Line 2082:             if role == "tool":
+    2081: 
+    2083:                 has_tool_result = True
+    2084:                 tool_name = m.get("name") or m.get("tool_call_id") or "tool"
+    2085:                 preview = content[:500] + ("..." if len(content) > 500 else "")
+  Line 2090:             if role == "user":
+    2087:                 other_parts.append(f"[tool_result name={tool_name}]\n{content}")
+    2088:                 continue
+    2089: 
+    2091:                 other_parts.append(f"[user]\n{content}")
+    2093:                 tc = m.get("tool_calls")
+  Line 2092:             elif role == "assistant":
+    2094:                 if tc:
+    2095:                     lines = []
+  Line 2105:                 other_parts.append(f"[{role}]\n{content}")
+    2102:                 if content:
+    2103:                     other_parts.append(f"[assistant]\n{content}")
+    2104:             else:
+    2106: 
+    2107:         parts: List[str] = []
+    2108:         # 协议放最前（用户实测 poe HIT 的结构：话术在前，[user] 消息在后）
+  Line 2222:             'css:[role="button"][type="submit"]',
+    2219:             'css:button[type="submit"]',
+    2220:             'tag:button@@type=submit',
+    2221:             'css:form button[type="submit"]',
+    2223:         ],
+    2224:         "result_container": [
+    2225:             'css:div[class*="message"]',
+  Line 2261:     def _validate_cached_element(self, cached: CachedElement) -> bool:
+    2258:         except Exception:
+    2259:             return ""
+    2260: 
+    2262:         if cached.is_stale():
+    2263:             return False
+    2264:         ele = cached.element
+  Line 2276:     def invalidate_cache(self, selector: str = None):
+    2273:         except Exception:
+    2274:             return False
+    2275: 
+    2277:         if selector:
+    2278:             self._cache.pop(selector, None)
+    2279:         else:
+  Line 2291:             if self._validate_cached_element(cached):
+    2288: 
+    2289:         if use_cache and selector in self._cache:
+    2290:             cached = self._cache[selector]
+    2292:                 return cached.element
+    2293:             else:
+    2294:                 del self._cache[selector]
+  Line 2549:         self._role_sent: bool = False
+    2546:         self._active_tools: Optional[List[Dict]] = None
+    2547:         self._active_tool_choice: Any = None
+    2548:         self._already_finished: bool = False
+    2550: 
+    2551:     def _check_cancelled(self) -> bool:
+    2552:         return self._should_stop()
+  Line 3041:     def _verify_and_recover_send(self, executor, selectors: dict,
+    3038:         except Exception:
+    3039:             return False
+    3040: 
+    3042:                                  pre_state: dict):
+    3043:         """发送后校验消息真的提交了（生成器：失败时 yield 错误块）。
+    3044: 
+  Line 3062:                 error_type="auth_error", code="site_logged_out")
+    3059:             yield self.formatter.pack_error(
+    3060:                 "站点会话已登出（检测到登录弹窗），消息无法发送。"
+    3061:                 "请在浏览器中重新登录该站点后重试",
+    3063:             raise WorkflowError("站点需要重新登录")
+    3064: 
+    3065:         def _poll(seconds: float) -> bool:
+  Line 3219:                                 || anc.getAttribute('role') === 'button'
+    3216:                         let anc = arrows[i].parentElement;
+    3217:                         while (anc) {
+    3218:                             if (anc.tagName === 'BUTTON'
+    3220:                                 || /cursor-pointer/.test(String(anc.className || ''))) {
+    3221:                                 try { anc.click(); } catch (e) {}
+    3222:                                 break;
+  Line 3303:                             || anc.getAttribute('role') === 'button'
+    3300:                     let anc = svg.parentElement;
+    3301:                     while (anc) {
+    3302:                         if (anc.tagName === 'BUTTON'
+    3304:                             || /cursor-pointer/.test(String(anc.className || ''))) {
+    3305:                             try { anc.click(); } catch (e) {}
+    3306:                             break;
+  Line 3469:                 if not getattr(self, "_role_sent", False) \
+    3466:                         f"gen={current['is_generating']} "
+    3467:                         f"anchor={current.get('anchor')!r} "
+    3468:                         f"url=...{_u[-45:]}")
+    3470:                         and (current.get('think_len') or 0) \
+    3471:                         > (ctx.think_baseline_len or 0):
+  Line 3472:                     self._role_sent = True
+    3474:                 # 积分耗尽兜底检测：poe 积分耗尽时弹订阅墙，消息容器
+    3475:                 # text_len 恒为 0，常规内容流抓不到耗尽文案 → 改对页面
+  Line 3473:                     yield self.formatter.pack_role_chunk()
+    3476:                 # 全文跑耗尽正则（每 5s 一次），命中即下发耗尽文案并
+  Line 3491:                         if not getattr(self, "_role_sent", False):
+    3488:                         logger.warning(
+    3489:                             "[Credit] 等待AI开始阶段页面全文命中积分耗尽文案"
+    3490:                             "（消息容器零输出，订阅墙场景）")
+    3494:                         _line = ''
+  Line 3492:                             self._role_sent = True
+    3495:                         for _ln in _page_text.split('\n'):
+  Line 3493:                             yield self.formatter.pack_role_chunk()
+    3496:                             if CREDIT_EXHAUSTED_RE.search(_ln):
+  Line 3598:         if not getattr(self, "_role_sent", False):
+    3595:     def _stream_output_phase_with_tools(self, selector: str,
+    3596:                                         ctx: StreamContext) -> Generator[str, None, None]:
+    3597:         logger.info("========== _stream_output_phase_with_tools 进入 ==========")
+    3601:         parser = ToolCallStreamParser(known_tools=self._active_tools or [])
+  Line 3599:             self._role_sent = True
+    3602:         all_tool_calls: List[Dict] = []
+  Line 3600:             yield self.formatter.pack_role_chunk()
+    3603: 
+  Line 4449:         is_valid, error_msg, sanitized_messages = MessageValidator.validate(messages)
+    4446:                          tools: Optional[List[Dict]] = None,
+    4447:                          tool_choice: Any = None,
+    4448:                          model: Optional[str] = None) -> Generator[str, None, None]:
+    4450:         if not is_valid:
+    4451:             yield self.formatter.pack_error(
+    4452:                 f"无效请求: {error_msg}",
+  Line 4459:                 sanitized_messages, tools=tools, tool_choice=tool_choice,
+    4456:             return
+    4457:         if stream:
+    4458:             yield from self._execute_workflow_stream(
+    4460:                 model=model
+    4461:             )
+    4462:         else:
+  Line 4464:                 sanitized_messages, tools=tools, tool_choice=tool_choice,
+    4463:             yield from self._execute_workflow_non_stream(
+    4465:                 model=model
+    4466:             )
+    4467: 
+  Line 4476:                 is_tool_continuation_debug = any(m.get("role") == "tool" for m in messages)
+    4473: 
+    4474:         try:
+    4475:             if DIRECT_TOOL_DEBUG:
+    4477:                 if not is_tool_continuation_debug:
+    4478:                     logger.info("[DirectTool] 调试模式：构造 read tool_call")
+    4479:                     last_user = ""
+  Line 4481:                         if m.get("role") == "user":
+    4480:                     for m in reversed(messages):
+    4482:                             last_user = m.get("content") or ""
+    4483:                             break
+    4484:                     m_path = re.search(
+  Line 4499:                         yield self.formatter.pack_role_chunk()
+    4496:                             "type": "function",
+    4497:                             "function": {"name": "read", "arguments": args_json},
+    4498:                         }
+    4500:                         yield self.formatter.pack_tool_calls_chunk([tc])
+    4501:                         yield self.formatter.pack_finish(finish_reason="tool_calls")
+    4502:                         return
+  Line 4572:             is_tool_continuation = any(m.get("role") == "tool" for m in messages)
+    4569:             self.stealth_mode = site_config.get("stealth", False)
+    4570:             upload_cfg = self._get_upload_config(site_config)
+    4571: 
+    4573:             if is_tool_continuation:
+    4574:                 # 续聊：保留 system + 最后一条带 tool_calls 的 assistant 及其后全部
+    4575:                 # tool 结果。更早的历史网页端会话里本来就有；丢掉 assistant 的
+  Line 4579:                     if (messages[i].get("role") == "assistant"
+    4576:                 # tool_calls 会让网页 AI 不知道自己上轮调了什么，回复就会跑偏。
+    4577:                 start_idx = -1
+    4578:                 for i in range(len(messages) - 1, -1, -1):
+    4580:                             and messages[i].get("tool_calls")):
+    4581:                         start_idx = i
+    4582:                         break
+  Line 4586:                         if m.get("role") == "user":
+    4583:                 if start_idx < 0:
+    4584:                     start_idx = 0
+    4585:                     for i, m in enumerate(messages):
+    4587:                             start_idx = i
+    4588:                 system_msgs = [m for m in messages[:start_idx]
+  Line 4589:                                if m.get("role") == "system"]
+    4590:                 effective_messages = system_msgs + messages[start_idx:]
+    4591:                 logger.info(
+    4592:                     f"[ToolRound] 续聊模式，system={len(system_msgs)}，"
+  Line 4760:                         yield from executor._verify_and_recover_send(
+    4757: 
+    4758:                     if (action == "CLICK" and target_key == "send_btn"
+    4759:                             and pre_send_state is not None):
+    4761:                             executor, selectors, pre_send_state)
+    4762: 
+    4763:             finally:
+  Line 4899:                 "role": "assistant",
+    4896: 
+    4897:         if collected_tool_calls:
+    4898:             message = {
+    4900:                 "content": full_content or None,
+    4901:                 "tool_calls": [
+    4902:                     {
+  Line 4918:             message = {"role": "assistant", "content": full_content}
+    4915:                 message["reasoning"] = full_reasoning
+    4916:             finish_reason = "tool_calls"
+    4917:         else:
+    4919:             if full_reasoning:
+    4920:                 message["reasoning_content"] = full_reasoning
+    4921:                 message["reasoning"] = full_reasoning
+
+C:\Users\mey\Desktop\universalweb-api-main\main.py:
+  Line 274: async def verify_auth(authorization: Optional[str] = Header(None)) -> bool:
+    271: 
+    272: # ================= 认证 =================
+    273: 
+    275:     if not AppConfig.AUTH_ENABLED:
+    276:         return True
+    277:     
+  Line 281:     if not authorization:
+    278:     if not AppConfig.AUTH_TOKEN:
+    279:         raise HTTPException(status_code=500, detail="服务配置错误")
+    280:     
+    282:         raise HTTPException(
+    283:             status_code=401,
+    284:             detail="未提供认证令牌",
+  Line 288:     token = authorization.replace("Bearer ", "").strip()
+    285:             headers={"WWW-Authenticate": "Bearer"}
+    286:         )
+    287:     
+    289:     
+    290:     if token != AppConfig.AUTH_TOKEN:
+    291:         raise HTTPException(
+  Line 306:     authenticated: bool = Depends(verify_auth)
+    303: async def chat_completions(
+    304:     request: Request,
+    305:     body: ChatRequest,
+    307: ):
+    308:     """
+    309:     OpenAI 兼容的聊天补全接口
+  Line 948:     message = {"role": "assistant", "content": full_content}
+    945:         return JSONResponse(content=error_data, status_code=500)
+    946: 
+    947:     full_content = "".join(collected_content)
+    949:     if collected_tool_calls:
+    950:         message["tool_calls"] = [
+    951:             {
+  Line 1006: async def list_models(authenticated: bool = Depends(verify_auth)):
+    1003: # ================= 模型列表 =================
+    1004: 
+    1005: @app.get("/v1/models")
+    1007:     # 模型 id = 各配置站点域名（客户端按 model id 路由到对应站点），
+    1008:     # 另含 web-browser（活动 tab 兜底）。OpenClaw 等客户端会对照此列表
+    1009:     # 校验/归一化 model id，缺了会导致 "This model was not found" 或被改写。
+  Line 1046:             "auth_enabled": AppConfig.AUTH_ENABLED
+    1043:         "request_manager": rm_status,
+    1044:         "config": {
+    1045:             "sites_loaded": len(config_engine.sites),
+    1047:         },
+    1048:         "timestamp": int(time.time())
+    1049:     }
+  Line 1058: async def get_config(authenticated: bool = Depends(verify_auth)):
+    1055: # ================= 配置管理 API =================
+    1056: 
+    1057: @app.get("/api/config")
+    1059:     try:
+    1060:         if os.path.exists(ConfigConstants.CONFIG_FILE):
+    1061:             with open(ConfigConstants.CONFIG_FILE, "r", encoding="utf-8") as f:
+  Line 1076:     authenticated: bool = Depends(verify_auth)
+    1073: @app.post("/api/config")
+    1074: async def save_config(
+    1075:     request: ConfigUpdateRequest,
+    1077: ):
+    1078:     try:
+    1079:         with open(ConfigConstants.CONFIG_FILE, "w", encoding="utf-8") as f:
+  Line 1097:     authenticated: bool = Depends(verify_auth)
+    1094: @app.delete("/api/config/{domain}")
+    1095: async def delete_site_config(
+    1096:     domain: str,
+    1098: ):
+    1099:     success = config_engine.delete_site_config(domain)
+    1100:     
+  Line 1110:     authenticated: bool = Depends(verify_auth)
+    1107: @app.get("/api/config/{domain}")
+    1108: async def get_site_config(
+    1109:     domain: str,
+    1111: ):
+    1112:     if domain in config_engine.sites:
+    1113:         return config_engine.sites[domain]
+  Line 1122: async def get_env_config(authenticated: bool = Depends(verify_auth)):
+    1119: # ================= 系统设置 API =================
+    1120: 
+    1121: @app.get("/api/settings/env")
+    1123:     """
+    1124:     读取 .env 文件配置
+    1125:     """
+  Line 1169:     authenticated: bool = Depends(verify_auth)
+    1166: @app.post("/api/settings/env")
+    1167: async def save_env_config(
+    1168:     request: Request,
+    1170: ):
+    1171:     """
+    1172:     保存 .env 配置（保留注释结构）
+  Line 1175:         data = await request.json()
+    1173:     """
+    1174:     try:
+    1176:         new_config = data.get("config", {})
+    1177:         
+    1178:         env_path = Path(".env")
+  Line 1235: async def get_browser_constants(authenticated: bool = Depends(verify_auth)):
+    1232: 
+    1233: 
+    1234: @app.get("/api/settings/browser-constants")
+    1236:     """
+    1237:     读取浏览器常量配置
+    1238:     """
+
+(Results truncated: showing newest 100 of 235 matches. Consider using a more specific path or pattern.)
+
+[tool_result name=call_77f50626271840ca9f02f631]
+Found 2545 matches (showing newest 100)
+C:\Users\mey\Desktop\universalweb-api-main\browser_core.py:
+  Line 297:     def __init__(self, name: str, level: int = logging.INFO):
+    294: class SecureLogger:
+    295:     LOG_SENSITIVE = os.environ.get('BROWSER_LOG_SENSITIVE', 'false').lower() == 'true'
+    296: 
+    298:         self._logger = self._setup_logger(name, level)
+    299: 
+  Line 300:     def _setup_logger(self, name: str, level: int) -> logging.Logger:
+  Line 301:         logger = logging.getLogger(name)
+  Line 302:         if not logger.handlers:
+    305:                 '[%(asctime)s] %(levelname)s %(message)s',
+  Line 303:             handler = logging.StreamHandler()
+    306:                 datefmt='%H:%M:%S'
+  Line 304:             formatter = logging.Formatter(
+    307:             )
+  Line 309:             logger.addHandler(handler)
+    308:             handler.setFormatter(formatter)
+    311:         return logger
+    312: 
+  Line 310:         logger.setLevel(level)
+    313:     def info(self, msg: str, *args, **kwargs):
+  Line 314:         self._logger.info(msg, *args, **kwargs)
+    315: 
+    316:     def debug(self, msg: str, *args, **kwargs):
+  Line 317:         self._logger.debug(msg, *args, **kwargs)
+    318: 
+    319:     def warning(self, msg: str, *args, **kwargs):
+  Line 320:         self._logger.warning(msg, *args, **kwargs)
+    321: 
+    322:     def error(self, msg: str, *args, **kwargs):
+  Line 323:         self._logger.error(msg, *args, **kwargs)
+    324: 
+    325:     def info_sensitive(self, msg: str, content: str = None,
+    326:                        max_preview: int = 50, *args, **kwargs):
+  Line 328:             self._logger.info(msg, *args, **kwargs)
+    327:         if content is None:
+    329:             return
+    330:         if self.LOG_SENSITIVE:
+    331:             preview = content[:max_preview] + "..." if len(content) > max_preview else content
+  Line 332:             self._logger.info(f"{msg} | preview='{preview}'", *args, **kwargs)
+    333:         else:
+    335: 
+  Line 334:             self._logger.info(f"{msg} | len={len(content)}", *args, **kwargs)
+    336: 
+    337: logger = SecureLogger('browser')
+  Line 405:             logger.warning(f"[Credit] 状态文件写入失败: {e}")
+    402:             with open(cls._FILE, 'w', encoding='utf-8') as f:
+    403:                 json.dump(data, f, ensure_ascii=False, indent=2)
+    404:         except Exception as e:
+    406: 
+    407:     @classmethod
+    408:     def _reset_hour_utc(cls) -> int:
+  Line 449:                     logger.info(f"[Credit] {key} 积分重置时间已到，记录清除")
+    446:                     # 积分已重置：清除记录
+    447:                     del data[key]
+    448:                     cls._save(data)
+    450:                 else:
+    451:                     hit = True
+    452:             return hit
+  Line 464:         logger.warning(
+    461:             data = cls._load()
+    462:             data[key] = {"marked_at": now, "exhausted_until": until}
+    463:             cls._save(data)
+    465:             f"[Credit] {key} 积分耗尽已记录，重置时间 "
+    466:             f"{time.strftime('%m-%d %H:%M', time.localtime(until))}")
+    467:         return until
+  Line 501:                     logger.info(f"[Credit] 已手动清除积分记录: {key}")
+    498:                 if key in data:
+    499:                     del data[key]
+    500:                     removed = True
+    502:             if removed:
+    503:                 cls._save(data)
+    504:             return removed
+  Line 556:         logger.debug(f"[SSE] begin_response id={rid}")
+    553:     def begin_response(cls) -> str:
+    554:         rid = cls._generate_id()
+    555:         cls._local.response_id = rid
+    557:         return rid
+    558: 
+    559:     @classmethod
+  Line 563:             logger.debug(f"[SSE] end_response id={rid}")
+    560:     def end_response(cls):
+    561:         rid = getattr(cls._local, 'response_id', None)
+    562:         if rid:
+    564:         cls._local.response_id = None
+    565: 
+    566:     @classmethod
+  Line 764:             logger.warning(
+    761:                     and messages[start].get('role') == 'tool':
+    762:                 start -= 1
+    763:             messages = head_system + list(messages[start:])
+    765:                 "[Validate] 消息数量 %d 超过上限 %d，已滑窗裁剪为 %d 条",
+    766:                 total_in, max_count, len(messages),
+    767:             )
+  Line 787:                 logger.warning(
+    784:                 # 首尾保真截断而非拒单；最终 prompt 长度仍由 LongPromptRouter 落盘/分片兜底
+    785:                 head_len = int(max_len * 0.7)
+    786:                 tail_len = max_len - head_len
+    788:                     "[Validate] messages[%d].content 长度 %d 超过 %d，已截断保留首尾",
+    789:                     i, len(content), max_len,
+    790:                 )
+  Line 1063:             logger.warning(
+    1060:         for rk in required:
+    1061:             if rk in out or rk not in props:
+    1062:                 continue
+    1064:                 f"[Conform] 必填参数 {rk} 缺失（工具 {fn_schema.get('name')}），补空值占位")
+    1065:             out[rk] = cls._default_for(props.get(rk))
+    1066:         return out
+  Line 1504:                 logger.info("[ToolCall] tool_call 围栏内 JSON 无有效工具调用，已静默丢弃")
+    1501:                 # ```tool_call 围栏内 JSON 可解析但无有效调用（如未知工具被
+    1502:                 # schema 对齐层丢弃）：这是失败的工具调用尝试，静默丢弃。
+    1503:                 # ```json / 裸关键字围栏不在此列，避免误伤答案里的 JSON 示例
+    1505:             else:
+    1506:                 plain.append(m.group(0) + json_str)
+    1507: 
+  Line 1720:             logger.info(f"[ToolCall] DSML 容错解析到 {len(results)} 个调用")
+    1717:             finish_invoke()
+    1718: 
+    1719:         if results:
+    1721:         return [c for c in (self._conform_call(r) for r in results) if c]
+    1722: 
+    1723:     @staticmethod
+  Line 1817:         logger.warning(f"[ToolCall] JSON 修复失败: {s[:120]}")
+    1814:                 return ast.literal_eval(cand)
+    1815:             except (ValueError, SyntaxError):
+    1816:                 continue
+    1818:         return None
+    1819: 
+    1820:     def _loads_value(self, v: str) -> Any:
+  Line 1885:                 logger.warning(f"[ToolCall] 丢弃未知工具调用: {name!r}（不在 IDE 工具清单内）")
+    1882:             if self.known_tools and fn_schema is None:
+    1883:                 # IDE 声明了工具清单而该名字对不上（如幽灵 "invoke"）：
+    1884:                 # 发过去 IDE 也会静默丢弃（表现为收到答复后没下文），不如中层拦下
+    1886:                 return None
+    1887:             if fn_schema is None:
+    1888:                 return tc
+  Line 1891:                 logger.info(f"[ToolCall] 工具名对齐: {name} -> {canonical}")
+    1889:             canonical = fn_schema.get("name")
+    1890:             if canonical and canonical != name:
+    1892:                 name = canonical
+    1893:             args = ToolSchemaConformer.conform_args(fn_schema, args)
+    1894:             return {
+  Line 1903:             logger.warning(f"[ToolCall] schema 对齐失败，保留原样: {e}")
+    1900:                 },
+    1901:             }
+    1902:         except Exception as e:
+    1904:             return tc
+    1905: 
+    1906:     # ---------------- 通用工具 ----------------
+  Line 2008:             logger.info(f"[ToolCall] 纯参数 JSON 推断工具名: {name}，参数: {list(args.keys())}")
+    2005:             candidates.append((n, converted_args))
+    2006:         if len(candidates) == 1:
+    2007:             name, args = candidates[0]
+    2009:             return name, args
+    2010:         if len(candidates) > 1:
+  Line 2011:             logger.warning(f"[ToolCall] 参数匹配多个工具: {[c[0] for c in candidates]}，跳过")
+    2012:         return None
+    2013: 
+    2014: 
+  Line 2050:         logger.info(f"[ToolRound] 可用工具: {len(tool_lines)} 个")
+    2047: 
+    2048:         if not tool_lines:
+    2049:             return ""
+    2051:         # 极简中间人话术（用户 2026-11-04 实测 poe HIT 的逐字模板，
+    2052:         # 长版剧本会被 poe 当思考内容消化掉）
+    2053:         return (
+  Line 2086:                 logger.info(f"[ToolResult] name={tool_name}, len={len(content)}, content={preview!r}")
+    2083:                 has_tool_result = True
+    2084:                 tool_name = m.get("name") or m.get("tool_call_id") or "tool"
+    2085:                 preview = content[:500] + ("..." if len(content) > 500 else "")
+    2087:                 other_parts.append(f"[tool_result name={tool_name}]\n{content}")
+    2088:                 continue
+    2089: 
+  Line 2139:         logger.info(f"[Upload] 单文件已准备: {filepath} ({len(prompt)} 字符)")
+    2136:         filename = f"prompt_{int(time.time())}_{uuid.uuid4().hex[:6]}.{ext}"
+    2137:         filepath = upload_dir / filename
+    2138:         filepath.write_text(prompt, encoding="utf-8")
+    2140:         return str(filepath.resolve()), filename
+    2141: 
+    2142:     @classmethod
+  Line 2151:             logger.warning(f"[Upload] 分块数 {len(chunks)} 超过上限 {max_files}，合并尾部")
+    2148: 
+    2149:         chunks = [prompt[i:i + chunk_size] for i in range(0, len(prompt), chunk_size)]
+    2150:         if len(chunks) > max_files:
+    2152:             head = chunks[:max_files - 1]
+    2153:             tail = "\n".join(chunks[max_files - 1:])
+    2154:             chunks = head + [tail]
+  Line 2165:         logger.info(f"[Upload] 分块文件已准备: {len(files)} 个 (chunk_size={chunk_size})")
+    2162:             path = upload_dir / name
+    2163:             path.write_text(chunk, encoding="utf-8")
+    2164:             files.append((str(path.resolve()), name))
+    2166:         return files
+    2167: 
+    2168: 
+  Line 2308:                 logger.debug(f"元素查找失败 [{selector}]: {e}")
+    2305:             return ele
+    2306:         except Exception as e:
+    2307:             if timeout > 1:
+    2309:             return None
+    2310: 
+    2311:     def find_all(self, selector: str, timeout: int = None) -> List[Any]:
+  Line 2319:             logger.debug(f"元素批量查找失败 [{selector}]: {e}")
+    2316:         try:
+    2317:             return self._find_all_with_syntax(selector, timeout)
+    2318:         except Exception as e:
+    2320:             return []
+    2321: 
+    2322:     def _find_with_syntax(self, selector: str, timeout: int) -> Optional[Any]:
+  Line 2351:         logger.debug(f"主选择器失败，尝试回退: {target_key}")
+    2348:         if not fallback_list:
+    2349:             return None
+    2350: 
+    2352:         fallback_timeout = BrowserConstants.FALLBACK_ELEMENT_TIMEOUT
+    2353:         for fb_selector in fallback_list:
+    2354:             ele = self.find(fb_selector, fallback_timeout)
+  Line 2356:                 logger.debug(f"回退选择器成功: {fb_selector}")
+    2355:             if ele:
+    2357:                 return ele
+    2358:         return None
+    2359: 
+  Line 2504:             logger.debug("固定的标签页已失效，重新获取")
+    2501:                     return self._pinned_tab
+    2502:             except Exception:
+    2503:                 pass
+    2505:             self._pinned_tab = None
+    2506:             self._pinned_tab_id = None
+    2507: 
+  Line 2589:                     logger.info(f"[Continue] 检测到继续按钮: text='{text[:20]}'")
+    2586:                 btn = self.tab.ele(xp, timeout=0.05)
+    2587:                 if btn and btn.states.is_displayed:
+    2588:                     text = (btn.text or "").strip()
+    2590:                     try:
+    2591:                         btn.click()
+    2592:                         return True
+  Line 2600:                             logger.warning(f"[Continue] 点击失败: {ce} / {ce2}")
+    2597:                             btn.click()
+    2598:                             return True
+    2599:                         except Exception as ce2:
+    2601:                             continue
+    2602:             except Exception:
+    2603:                 continue
+  Line 2624:                                 logger.info(f"[Continue] 通过 ds-button__background 定位: '{text[:20]}'")
+    2621:                         if parent and parent.states.is_displayed:
+    2622:                             text = (parent.text or "").strip()
+    2623:                             if "继续" in text or "continue" in text.lower():
+    2625:                                 try:
+    2626:                                     parent.click()
+    2627:                                     return True
+  Line 2629:                                     logger.warning(f"[Continue] 通过背景点击失败: {ce}")
+    2628:                                 except Exception as ce:
+    2630:                     except Exception:
+    2631:                         continue
+    2632:         except Exception:
+  Line 2642:             logger.debug(f"步骤 {action} 跳过（已取消）")
+    2639:                      optional: bool = False,
+    2640:                      context: Dict = None) -> Generator[str, None, None]:
+    2641:         if self._check_cancelled():
+    2643:             return
+    2644: 
+  Line 2645:         logger.debug(f"执行: {action} -> {target_key}")
+    2646: 
+    2647:         try:
+    2648:             if action == "WAIT":
+  Line 2689:                         logger.info(f"[Nav] 已在目标页且元素就绪，跳过导航: {url}")
+    2686:                     except Exception:
+    2687:                         _same_page = False
+    2688:                     if _same_page and _wait_ele(25):
+    2690:                         return
+    2692:                     self.tab.get(url)
+  Line 2691:                     logger.info(f"[Nav] 工作流导航: {url}")
+    2693:                     time.sleep(1.5)
+    2694:                     # 等待关键元素就绪（如输入框），poe 等站点首屏慢，
+  Line 2720:                 logger.debug(f"未知动作: {action}")
+    2717:                 yield from self._stream_monitor(selector)
+    2718: 
+    2719:             else:
+    2721: 
+    2722:         except ElementNotFoundError as e:
+    2723:             if not optional:
+  Line 2727:             logger.error(f"步骤执行失败 [{action}]: {e}")
+    2724:                 yield self.formatter.pack_error(f"元素未找到: {str(e)}")
+    2725:                 raise
+    2726:         except Exception as e:
+    2728:             if not optional:
+    2729:                 yield self.formatter.pack_error(f"执行失败: {str(e)}")
+    2730:                 raise
+  Line 2775:                 logger.debug(f"点击异常: {click_err}")
+    2772:                     BrowserConstants.ACTION_DELAY_MAX
+    2773:                 )
+    2774:             except Exception as click_err:
+    2776:                 if target_key == "send_btn":
+    2777:                     self._execute_keypress("Enter")
+    2778:         elif target_key == "send_btn":
+  Line 2781:             raise ElementNotFoundError(f"点击目标未找到: {selector}")
+    2779:             self._execute_keypress("Enter")
+    2780:         elif not optional:
+    2782: 
+    2783:     def _execute_fill(self, selector: str, text: str,
+    2784:                       target_key: str, optional: bool):
+  Line 2790:                 raise ElementNotFoundError("找不到输入框")
+    2787:         ele = self.finder.find_with_fallback(selector, target_key)
+    2788:         if not ele:
+    2789:             if not optional:
+    2791:             return
+    2792: 
+    2793:         if self.stealth_mode:
+  Line 2818:             logger.debug(f"文本已输入 ({len(text)} 字符)")
+    2815: 
+    2816:         try:
+    2817:             ele.input(text)
+    2819:         except Exception:
+    2820:             # contenteditable 站点 fallback：execCommand 走原生输入事件链
+    2821:             try:
+  Line 2823:                     "try{const sel=%s;"
+    2822:                 self.tab.run_js(
+    2824:                     "let el=document.querySelector(sel);"
+    2825:                     "if(!el){let ces=document.querySelectorAll("
+    2826:                     "'[contenteditable=true]');"
+  Line 2831:                     "document.execCommand('insertText',false,%s);}}catch(e){}"
+    2828:                     "if(el){el.focus();"
+    2829:                     "document.execCommand('selectAll',false,null);"
+    2830:                     "document.execCommand('delete',false,null);"
+    2832:                     % (json.dumps(selector), json.dumps(text)))
+    2833:             except Exception:
+    2834:                 pass
+  Line 2839:             _chk_js = ("try{"
+    2836: 
+    2837:         # 内容校验：输入框应恰好等于本次文本（防历史文本叠加）
+    2838:         try:
+    2840:                        "const sel=%s;"
+    2841:                        "let el=document.querySelector(sel);"
+    2842:                        "if(!el){let ces=document.querySelectorAll("
+  Line 2846:                        "}catch(e){return '';}")
+    2843:                        "'[contenteditable=true]');"
+    2844:                        "el=ces.length?ces[ces.length-1]:null;}"
+    2845:                        "return el ? (el.textContent||el.value||'') : '';"
+    2847:             cur = self.tab.run_js(_chk_js % json.dumps(selector))
+    2848:             if isinstance(cur, str) and cur.strip() != text.strip():
+  Line 2849:                 logger.warning(
+    2850:                     f"[Fill] 输入框内容不符（{len(cur)} != {len(text)}，"
+    2851:                     "可能残留旧文本），强制清空重写")
+    2852:                 try:
+  Line 2870:                 logger.warning(f"上传文件不存在，跳过: {file_path}")
+    2867: 
+    2868:         if not file_path or not Path(file_path).exists():
+    2869:             if optional:
+    2871:                 return
+    2873: 
+  Line 2872:             raise ElementNotFoundError(f"上传文件不存在: {file_path}")
+    2874:         # 上传前清理残留：此前发送失败会在输入区堆附件（z.ai 上限 5 个，
+    2875:         # 超限后发送按钮不生效），先移除旧的附件 chip
+  Line 2886:                     logger.debug("点击上传按钮触发文件选择器")
+    2883:             try:
+    2884:                 upload_btn = self.finder.find(upload_btn_selector, timeout=2)
+    2885:                 if upload_btn:
+    2887:                     upload_btn.click()
+    2888:                     time.sleep(0.4)
+    2889:                     if file_input_selector:
+  Line 2892:                 logger.debug(f"点击上传按钮失败: {e}")
+    2890:                         file_input = self.finder.find(file_input_selector, timeout=2)
+    2891:             except Exception as e:
+    2893: 
+    2894:         if not file_input:
+    2895:             file_input = self.finder.find('input[type="file"]', timeout=1)
+  Line 2900:                 logger.warning(f"跳过上传: {msg}")
+    2897:         if not file_input:
+    2898:             msg = "找不到 file input 元素（检查 upload_btn / file_input 选择器）"
+    2899:             if optional:
+    2901:                 return
+    2903: 
+  Line 2902:             raise ElementNotFoundError(msg)
+    2904:         try:
+    2905:             try:
+  Line 2912:             logger.info(f"[Upload] 文件已注入: {Path(file_path).name}")
+    2909:                     file_input.input(files=[file_path])
+    2910:                 except TypeError:
+    2911:                     file_input.input(files=file_path)
+    2913:         except Exception as e:
+    2915:             if optional:
+  Line 2914:             logger.error(f"[Upload] 注入失败: {e}")
+    2916:                 return
+  Line 2917:             raise ElementNotFoundError(f"文件上传失败: {e}")
+    2918: 
+    2919:         if wait_after > 0:
+    2920:             time.sleep(wait_after)
+  Line 2934:         "  try { b.click(); n++; } catch (e) {}"
+    2931:         "  const b = p.closest('button');"
+    2932:         "  if (!b || seen.has(b)) return;"
+    2933:         "  seen.add(b);"
+    2935:         "});"
+    2936:         "return n;")
+    2937: 
+  Line 2949:                 logger.warning(f"[Attach] 清理输入区残留附件 {n} 项")
+    2946:             n = self.tab.run_js(self._CHIP_REMOVE_JS)
+    2947:             n = int(n or 0)
+    2948:             if n:
+    2950:                 time.sleep(0.8)
+    2951:             return n
+    2952:         except Exception:
+  Line 2974:         logger.warning("[Busy] 检测到上一次生成仍在运行，点击停止")
+    2971:         会被页面忽略（发送按钮不生效），必须先停止上一次生成。"""
+    2972:         if not self._page_busy():
+    2973:             return
+    2975:         try:
+    2976:             self.tab.run_js(
+    2977:                 "const w = document.querySelector('[aria-label*=\"停止\"]');"
+  Line 2987:                 logger.info("[Busy] 已停止，页面空闲")
+    2984:         while time.time() < deadline:
+    2985:             time.sleep(0.5)
+    2986:             if not self._page_busy():
+    2988:                 time.sleep(1.0)
+    2989:                 return
+  Line 2990:         logger.warning(f"[Busy] 等待生成结束超时（{max_wait:.0f}s），继续尝试发送")
+    2991: 
+    2992:     def _capture_send_state(self, input_selector: str,
+    2993:                             msg_selector: str = "") -> dict:
+  Line 3058:             logger.error("[Send] 检测到站点登录弹窗（会话已登出），终止发送")
+    3055:         # 登录弹窗检测：站点登出后模态遮罩+焦点陷阱锁死全页，
+    3056:         # 所有输入/点击失效——重试无意义，必须重新登录
+    3057:         if self._detect_login_modal():
+    3059:             yield self.formatter.pack_error(
+    3060:                 "站点会话已登出（检测到登录弹窗），消息无法发送。"
+    3061:                 "请在浏览器中重新登录该站点后重试",
+  Line 3063:             raise WorkflowError("站点需要重新登录")
+    3062:                 error_type="auth_error", code="site_logged_out")
+    3064: 
+    3065:         def _poll(seconds: float) -> bool:
+    3066:             deadline = time.time() + seconds
+  Line 3101:             logger.info("[Send] 发送校验通过")
+    3098:             return False
+    3099: 
+    3100:         if _poll(5.0):
+    3102:             return
+    3103: 
+  Line 3104:         logger.warning("[Send] 发送未生效，补按 Enter 重试")
+    3105:         try:
+    3106:             executor._execute_keypress("Enter")
+    3107:         except Exception:
+  Line 3111:             logger.info("[Send] 补按 Enter 后发送成功")
+    3108:             pass
+    3109: 
+    3110:         if _poll(10.0):
+    3112:             return
+    3113: 
+    3114:         # 诊断：打印前后状态，便于定位是哪个信号失效
+  Line 3117:             logger.info(
+    3115:         try:
+    3116:             now = self._capture_send_state(input_sel, msg_sel)
+    3118:                 f"[Send] 校验失败详情 pre={pre_state} now={now} "
+    3119:                 f"url={(self.tab.url or '').split('?')[0]}")
+    3120:         except Exception:
+  Line 3128:                 "try{let el=document.querySelector("
+    3125:         # React 状态可能已与 DOM 脱钩（发送按钮 disabled）
+    3126:         try:
+    3127:             self.tab.run_js(
+    3129:                 "'#chat-input,textarea,[contenteditable=true]');"
+    3130:                 "if(el){el.focus();"
+    3131:                 "document.execCommand('selectAll',false,null);"
+  Line 3132:                 "document.execCommand('delete',false,null);}}catch(e){}")
+    3133:         except Exception:
+    3134:             pass
+  Line 3135:         logger.error(
+    3136:             f"[Send] 发送失败：疑似附件超限或页面异常，"
+    3137:             f"已清理残留 {removed} 项，终止本次请求")
+    3138:         yield self.formatter.pack_error(
+  Line 3142:         raise WorkflowError("发送未生效")
+    3139:             "消息未发送成功：页面附件可能超过上限或输入区状态异常，"
+    3140:             "已在浏览器清理残留附件，请重试",
+    3141:             error_type="send_error", code="send_not_effective")
+    3143: 
+    3144:     def _read_visible_text(self, ele) -> tuple:
+    3145:         """读取消息节点可见文本。
+  Line 3184:                     try { style = window.getComputedStyle(node); } catch (e) {}
+    3181:                         if (/^\\d{1,2}:\\d{2}$/.test(tt)) { return; }
+    3182:                     }
+    3183:                     let style = null;
+    3185:                     if (style && (style.display === 'none' ||
+    3186:                                   style.visibility === 'hidden')) { return; }
+    3187:                     let cls = '';
+  Line 3188:                     try {
+    3189:                         cls = (node.getAttribute('class') || '') + ' ' +
+    3190:                               (node.id || '');
+  Line 3191:                     } catch (e) {}
+    3192:                     const myThink = inThink || (!isRoot && THINK_RE.test(cls));
+    3193:                     const isBlock = BLOCK[tag] === 1 ||
+    3194:                                     (style && style.display === 'block');
+  Line 3213:                 try {
+    3210:                 return JSON.stringify(acc);
+    3211:             }
+    3212:             function expandCollapsedThink(root) {
+    3214:                     const arrows = root.querySelectorAll('svg[class*="-rotate-90"]');
+    3215:                     for (let i = 0; i < arrows.length; i++) {
+    3216:                         let anc = arrows[i].parentElement;
+  Line 3221:                                 try { anc.click(); } catch (e) {}
+    3218:                             if (anc.tagName === 'BUTTON'
+    3219:                                 || anc.getAttribute('role') === 'button'
+    3220:                                 || /cursor-pointer/.test(String(anc.className || ''))) {
+    3222:                                 break;
+    3223:                             }
+    3224:                             if (anc === root) break;
+  Line 3228:                 } catch (e) {}
+    3225:                             anc = anc.parentElement;
+    3226:                         }
+    3227:                     }
+    3229:             }
+    3230:             expandCollapsedThink(this);
+    3231:             // 工具调用 trace chip（z.ai：探索 N 次文件/读取文件/文本搜索）
+  Line 3235:             try {
+    3232:             // 插在段落之间且计数会刷新，混入正文会造成重复交叠文本。
+    3233:             // 在克隆上移除后再抽取，不改动真实页面。
+    3234:             let __root = this;
+    3236:                 __root = this.cloneNode(true);
+    3237:                 __root.querySelectorAll('.toolCallTrace, [class*="toolCallTrace"]')
+    3238:                     .forEach(function (n) { n.remove(); });
+  Line 3239:             } catch (e) {}
+    3240:             return extract(__root);
+    3241:         """
+    3242:         try:
+  Line 3305:                             try { anc.click(); } catch (e) {}
+    3302:                         if (anc.tagName === 'BUTTON'
+    3303:                             || anc.getAttribute('role') === 'button'
+    3304:                             || /cursor-pointer/.test(String(anc.className || ''))) {
+    3306:                             break;
+    3307:                         }
+    3308:                         anc = anc.parentElement;
+  Line 3338:             logger.debug(f"Snapshot 异常: {e}")
+    3335:                 self._generating_checker = GeneratingStatusCache(self.tab)
+    3336:             result['is_generating'] = self._generating_checker.is_generating()
+    3337:         except Exception as e:
+    3339:         return result
+    3340: 
+    3341:     def _get_active_turn_text(self, selector: str) -> str:
+  Line 3356:         logger.info("========== 流式监听启动 (v4) ==========")
+    3353:             return ""
+    3354: 
+    3355:     def _stream_monitor(self, selector: str) -> Generator[str, None, None]:
+    3357: 
+    3358:         ctx = StreamContext()
+    3359:         self._stream_ctx = ctx
+  Line 3365:         logger.debug("[阶段0] 抓取 instant baseline")
+    3362:         # AI Start 增长判定失效时用它识别"回复已生成"
+    3363:         ctx.pre_send_url = getattr(self, '_sent_from_url', '') or ''
+    3364: 
+    3366:         ctx.instant_baseline = self._get_latest_message_snapshot(selector)
+    3368:                     f"text_len={ctx.instant_baseline['text_len']}, "
+  Line 3367:         logger.info(f"[Instant] count={ctx.instant_baseline['groups_count']}, "
+    3369:                     f"generating={ctx.instant_baseline['is_generating']}")
+    3370: 
+  Line 3371:         logger.debug(f"[阶段1] 等待用户消息上屏（最多 8s，含页面重载等待）")
+    3372:         user_msg_wait_start = time.time()
+    3373:         user_msg_wait_max = 8.0
+    3374:         ctx.user_baseline = None
+  Line 3378:                 logger.info("等待用户消息时被取消")
+    3375: 
+    3376:         while time.time() - user_msg_wait_start < user_msg_wait_max:
+    3377:             if self._check_cancelled():
+    3379:                 return
+    3380: 
+    3381:             current_snapshot = self._get_latest_message_snapshot(selector)
+
+(Results truncated: showing newest 100 of 2545 matches. Consider using a more specific path or pattern.)
+
+[tool_result name=call_4d6a9a1f4dac41749e3202d6]
+Found 514 matches (showing newest 100)
+C:\Users\mey\Desktop\universalweb-api-main\browser_core.py:
+  Line 31: import socket
+    28: import re
+    29: import time
+    30: import json
+    32: import random
+    33: import logging
+    34: import threading
+  Line 36: import subprocess
+    35: import hashlib
+    37: import uuid
+    38: from pathlib import Path
+    39: from typing import Generator, Optional, Dict, Any, List, Callable
+  Line 133:                     with open(candidate, 'r', encoding='utf-8') as f:
+    130:         for candidate in candidates:
+    131:             if candidate.exists():
+    132:                 try:
+    134:                         cls._config = json.load(f)
+    135:                     return
+    136:                 except Exception:
+  Line 394:             with open(cls._FILE, 'r', encoding='utf-8') as f:
+    391:     @classmethod
+    392:     def _load(cls) -> dict:
+    393:         try:
+    395:                 return json.load(f)
+    396:         except Exception:
+    397:             return {}
+  Line 402:             with open(cls._FILE, 'w', encoding='utf-8') as f:
+    399:     @classmethod
+    400:     def _save(cls, data: dict):
+    401:         try:
+    403:                 json.dump(data, f, ensure_ascii=False, indent=2)
+    404:         except Exception as e:
+    405:             logger.warning(f"[Credit] 状态文件写入失败: {e}")
+  Line 820:     - 工具名：精确 -> 归一化（read_file / readFile / read-file）-> 唯一包含匹配
+    817:     兼容点：
+    818:     - 工具定义：OpenAI function / Anthropic input_schema / Gemini parameters
+    819:       / 裸 {name, parameters} / parameters 为 JSON 字符串
+    821:     - 参数名：精确 -> 归一化 -> 唯一包含匹配（file_path / filePath / path）
+    822:     - 参数类型：string / number / integer / boolean / array / object 双向转换
+    823:     - schema 未声明的参数丢弃（避免 IDE 严格校验报错）
+  Line 2129:         upload_dir.mkdir(parents=True, exist_ok=True)
+    2126:     @staticmethod
+    2127:     def _ensure_dir(cfg: dict) -> Path:
+    2128:         upload_dir = Path(cfg.get("upload_dir", "uploads"))
+    2130:         return upload_dir
+    2131: 
+    2132:     @classmethod
+  Line 2140:         return str(filepath.resolve()), filename
+    2137:         filepath = upload_dir / filename
+    2138:         filepath.write_text(prompt, encoding="utf-8")
+    2139:         logger.info(f"[Upload] 单文件已准备: {filepath} ({len(prompt)} 字符)")
+    2141: 
+    2142:     @classmethod
+    2143:     def prepare_chunked_files(cls, prompt: str, cfg: dict) -> list:
+  Line 2164:             files.append((str(path.resolve()), name))
+    2161:             name = f"prompt_{stamp}_{uid}_part{i + 1:02d}of{total:02d}.{ext}"
+    2162:             path = upload_dir / name
+    2163:             path.write_text(chunk, encoding="utf-8")
+    2165:         logger.info(f"[Upload] 分块文件已准备: {len(files)} 个 (chunk_size={chunk_size})")
+    2166:         return files
+    2167: 
+  Line 4068:     def _port_open(self, port: int) -> bool:
+    4065:             self.config_engine = config_engine
+    4066:         return self.config_engine
+    4067: 
+    4069:         """调试端口是否有浏览器在监听（避免 DrissionPage 连不上时
+    4070:         自动拉起一个全新空白浏览器）。"""
+    4071:         try:
+  Line 4072:             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    4073:                 s.settimeout(0.6)
+    4074:                 return s.connect_ex(('127.0.0.1', port)) == 0
+    4075:         except Exception:
+  Line 4106:             subprocess.Popen(
+    4103:             # 直接打开默认站点（不留 about:blank 空白页，
+    4104:             # 与 Dashboard 新增账号行为一致，窗口弹出即可登录）
+    4105:             default_site = cfg.get('DEFAULT_SITE') or 'poe.com'
+    4107:                 [chrome, f"--remote-debugging-port={port}",
+    4108:                  f"--user-data-dir={udd}",
+    4109:                  "--no-first-run", "--no-default-browser-check",
+  Line 4111:                 creationflags=subprocess.DETACHED_PROCESS
+    4110:                  f"https://{default_site}"],
+    4113:             logger.info(f"[Instance] 已自动启动账号实例 :{port} "
+    4114:                         f"profile={udd}")
+  Line 4112:                 | subprocess.CREATE_NEW_PROCESS_GROUP)
+    4115:             for _ in range(30):
+  Line 4117:                 if self._port_open(port):
+    4116:                 time.sleep(1)
+    4118:                     return True
+    4119:             return False
+    4120:         except Exception as e:
+  Line 4126:             if not self._port_open(self.port):
+    4123: 
+    4124:     def _connect(self) -> bool:
+    4125:         try:
+    4127:                 # 端口无浏览器：优先按账号 profile 自动启动（登录态保留）；
+    4128:                 # 绝不允许 DrissionPage 静默拉起全新空白浏览器
+    4129:                 logger.warning(
+  Line 4228:             # 先用 socket 探测端口：DrissionPage 连不上时会自作主张
+    4225:                     logger.info(f"[Instance] 实例 {inst.get('name')} "
+    4226:                                 f"(:{port}) {site_domain} 候选模型积分均未重置，跳过")
+    4227:                     continue
+    4229:             # 拉起一个新 Chrome（空 profile、未登录），必须避免；
+    4230:             # 端口不通但实例配置了 user_data_dir → 按账号 profile
+    4231:             # 自动启动（登录态保留），实现积分耗尽自动切号
+  Line 4232:             import socket as _socket
+    4234:             _s.settimeout(0.8)
+    4235:             _alive = False
+  Line 4233:             _s = _socket.socket()
+    4236:             try:
+
+C:\Users\mey\Desktop\universalweb-api-main\main.py:
+  Line 17: import subprocess
+    14: import logging
+    15: import asyncio
+    16: import faulthandler
+    18: 
+    20:                                "faulthandler.log")
+  Line 19: _fault_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+    22: faulthandler.enable(_fault_log)
+  Line 21: _fault_log = open(_fault_log_path, "w", encoding="utf-8", buffering=1)
+    23: import sys
+    24: import threading
+  Line 131:     os.path.join(os.path.dirname(os.path.abspath(__file__)), "server.log"),
+    128: # 日志始终落盘到 server.log，避免排查问题时丢失输出
+    129: from logging.handlers import RotatingFileHandler
+    130: _file_handler = RotatingFileHandler(
+    132:     maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8")
+    133: _file_handler.setFormatter(logging.Formatter(
+    134:     '[%(asctime)s] %(levelname)s [%(name)s] %(message)s',
+  Line 363:     ctx = request_manager.create_request()
+    360:         pass  # 预检失败不影响正常流程
+    361: 
+    362:     # 创建请求上下文
+    364:     logger.info(f"请求 [{ctx.request_id}] 开始...")
+    365:     
+    366:     if body.stream:
+  Line 1061:             with open(ConfigConstants.CONFIG_FILE, "r", encoding="utf-8") as f:
+    1058: async def get_config(authenticated: bool = Depends(verify_auth)):
+    1059:     try:
+    1060:         if os.path.exists(ConfigConstants.CONFIG_FILE):
+    1062:                 content = f.read().strip()
+    1063:                 if not content:
+    1064:                     return {}
+  Line 1079:         with open(ConfigConstants.CONFIG_FILE, "w", encoding="utf-8") as f:
+    1076:     authenticated: bool = Depends(verify_auth)
+    1077: ):
+    1078:     try:
+    1080:             json.dump(request.config, f, indent=2, ensure_ascii=False)
+    1081:         
+    1082:         config_engine.reload_config()
+  Line 1131:             with open(env_path, 'r', encoding='utf-8') as f:
+    1128:         config = {}
+    1129:         
+    1130:         if env_path.exists():
+    1132:                 for line in f:
+    1133:                     line = line.strip()
+    1134:                     
+  Line 1183:             with open(env_path, 'r', encoding='utf-8') as f:
+    1180:         
+    1181:         # 读取现有文件
+    1182:         if env_path.exists():
+    1184:                 lines = f.readlines()
+    1185:         
+    1186:         new_lines = []
+  Line 1218:         with open(env_path, 'w', encoding='utf-8') as f:
+    1215:                 new_lines.append(line)
+    1216:         
+    1217:         # 写回文件
+    1219:             f.writelines(new_lines)
+    1220:         
+    1221:         logger.info(f"环境配置已保存: {len(new_config)} 项")
+  Line 1243:             with open(config_path, 'r', encoding='utf-8') as f:
+    1240:         config_path = Path("browser_config.json")
+    1241:         
+    1242:         if config_path.exists():
+    1244:                 config = json.load(f)
+    1245:         else:
+    1246:             # 返回默认值
+  Line 1301:         with open(config_path, 'w', encoding='utf-8') as f:
+    1298:         config_path = Path("browser_config.json")
+    1299:         
+    1300:         # 保存到文件
+    1302:             json.dump(config, f, indent=2, ensure_ascii=False)
+    1303:         
+    1304:         # 尝试热重载
+  Line 1344:         with open(p, 'r', encoding='utf-8') as f:
+    1341: def _read_browser_config_raw() -> dict:
+    1342:     p = Path("browser_config.json")
+    1343:     if p.exists():
+    1345:             return json.load(f)
+    1346:     return {}
+    1347: 
+  Line 1351:     with open(p, 'w', encoding='utf-8') as f:
+    1348: 
+    1349: def _write_browser_config_raw(cfg: dict):
+    1350:     p = Path("browser_config.json")
+    1352:         json.dump(cfg, f, indent=2, ensure_ascii=False)
+    1353:     try:
+    1354:         from browser_core import BrowserConstants
+  Line 1364:     import socket
+    1361: def _debug_port_alive(port: int) -> bool:
+    1362:     if not port:
+    1363:         return False
+    1366:     s.settimeout(0.8)
+    1367:     try:
+  Line 1365:     s = socket.socket()
+    1368:         s.connect(("127.0.0.1", int(port)))
+  Line 1443:         profile_dir = os.path.abspath(os.path.join("chrome_profiles", name))
+    1440:         while name in names:
+    1441:             name = f"{base}{n}"
+    1442:             n += 1
+    1444:         os.makedirs(profile_dir, exist_ok=True)
+    1445:         chrome = _find_chrome_exe()
+    1446:         if not chrome:
+  Line 1449:         subprocess.Popen(
+    1447:             raise HTTPException(status_code=500,
+    1448:                                 detail="未找到 Chrome/Edge，请先安装 Chrome")
+    1450:             [chrome, f"--remote-debugging-port={port}",
+    1451:              f"--user-data-dir={profile_dir}",
+    1452:              "--no-first-run", "--no-default-browser-check",
+  Line 1454:             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+    1453:              f"https://{default_site}"],
+    1455:         inst = {"name": name, "port": port, "user_data_dir": profile_dir}
+    1456:         instances.append(inst)
+    1457:         _write_browser_config_raw(cfg)
+  Line 1483:             os.path.join("chrome_profiles", name))
+    1480:         if _debug_port_alive(port):
+    1481:             return {"status": "success", "message": f"{name} 已在运行（端口 {port}）"}
+    1482:         profile_dir = inst.get("user_data_dir") or os.path.abspath(
+    1484:         os.makedirs(profile_dir, exist_ok=True)
+    1485:         chrome = _find_chrome_exe()
+    1486:         if not chrome:
+  Line 1490:         subprocess.Popen(
+    1487:             raise HTTPException(status_code=500,
+    1488:                                 detail="未找到 Chrome/Edge，请先安装 Chrome")
+    1489:         default_site = BrowserConstants.get("DEFAULT_SITE") or "poe.com"
+    1491:             [chrome, f"--remote-debugging-port={port}",
+    1492:              f"--user-data-dir={profile_dir}",
+    1493:              "--no-first-run", "--no-default-browser-check",
+  Line 1495:             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+    1494:              f"https://{default_site}"],
+    1496:         logger.info(f"[Instance] 已启动实例 {name}:{port}")
+    1497:         return {"status": "success",
+    1498:                 "message": f"已启动 {name}（端口 {port}），窗口稍后弹出"}
+  Line 1519:                 ps = subprocess.run(
+    1516:         # 关闭对应浏览器进程（按监听该端口的进程）
+    1517:         if port and _debug_port_alive(port):
+    1518:             try:
+    1520:                     ["powershell", "-NoProfile", "-Command",
+    1521:                      f"(Get-NetTCPConnection -LocalPort {port} -State Listen "
+    1522:                      "-ErrorAction SilentlyContinue).OwningProcess"],
+  Line 1526:                     subprocess.run(["taskkill", "/PID", pid, "/T", "/F"],
+    1523:                     capture_output=True, text=True, timeout=10)
+    1524:                 pid = ps.stdout.strip().splitlines()[-1].strip() if ps.stdout.strip() else ""
+    1525:                 if pid.isdigit():
+    1527:                                    capture_output=True, timeout=10)
+    1528:                     logger.info(f"[Instance] 已关闭实例 {name} 进程 (pid {pid})")
+    1529:             except Exception as e:
+
+C:\Users\mey\Desktop\universalweb-api-main\tests\test_api_ide.py:
+  Line 494:     ctx_a = rm.create_request()
+    491:     from request_manager import RequestManager
+    492: 
+    493:     rm = RequestManager()
+    497: 
+  Line 495:     ctx_b = rm.create_request()
+    498:     ok = []
+  Line 496:     ctx_c = rm.create_request()
+    499:     t1 = threading.Thread(target=lambda: ok.append(
+  Line 528:     ctx = rm.create_request()
+    525:     from request_manager import RequestManager
+    526: 
+    527:     rm = RequestManager()
+    529:     acquired = asyncio.new_event_loop().run_until_complete(
+    530:         rm.acquire(ctx, timeout=1.0, site_key="chat.z.ai"))
+    531:     assert acquired
+
+C:\Users\mey\Desktop\universalweb-api-main\dashboard.js:
+  Line 609:                 const response = await fetch(url, {
+    606:             }
+    607:             
+    608:             try {
+    610:                     ...options,
+    611:                     headers
+    612:                 })
+
+C:\Users\mey\Desktop\universalweb-api-main\request_manager.py:
+  Line 137:         ctx = request_manager.create_request()
+    134:     4. 取消传递：可靠地取消正在执行的请求
+    135:     
+    136:     使用方式：
+    138:         try:
+    139:             acquired = await request_manager.acquire(ctx)
+    140:             if acquired:
+  Line 185:     def create_request(self) -> RequestContext:
+    182:     
+    183:     # ================= 请求创建 =================
+    184:     
+    186:         """
+    187:         创建新请求
+    188:         
+  Line 211:             oldest_id, oldest_ctx = next(iter(self._requests.items()))
+    208:     def _cleanup_old_requests(self):
+    209:         """清理旧请求记录"""
+    210:         while len(self._requests) > self._max_history:
+    212:             if oldest_ctx.is_terminal():
+    213:                 del self._requests[oldest_id]
+    214:             else:
+  Line 328:     def cancel_request(self, request_id: str, 
+    325:     
+    326:     # ================= 取消控制 =================
+    327:     
+    329:                        reason: str = "manual") -> bool:
+    330:         """
+    331:         取消指定请求
+  Line 341:             ctx = self._requests.get(request_id)
+    338:             是否成功发送取消信号
+    339:         """
+    340:         with self._requests_lock:
+    342:         
+    343:         if not ctx:
+    344:             logger.debug(f"请求 [{request_id}] 不存在")
+  Line 358:             return self.cancel_request(current_id, reason)
+    355:         """取消当前正在执行的请求"""
+    356:         current_id = self._current_request_id
+    357:         if current_id:
+    359:         return False
+    360:     
+    361:     # ================= 状态查询 =================
+  Line 363:     def get_request(self, request_id: str) -> Optional[RequestContext]:
+    362:     
+    364:         """获取请求上下文"""
+    365:         with self._requests_lock:
+  Line 366:             return self._requests.get(request_id)
+    367:     
+    368:     def is_locked(self) -> bool:
+    369:         """检查是否有任意站点锁被占用"""
+  Line 381:                 1 for ctx in self._requests.values()
+    378:         """获取等待中的请求数量"""
+    379:         with self._requests_lock:
+    380:             return sum(
+    382:                 if ctx.status == RequestStatus.QUEUED
+    383:             )
+    384:     
+  Line 389:             for ctx in self._requests.values():
+    386:         """获取管理器状态"""
+    387:         with self._requests_lock:
+    388:             status_counts = {}
+    390:                 s = ctx.status.value
+    391:                 status_counts[s] = status_counts.get(s, 0) + 1
+    392:             
+  Line 416:             ctx = self.get_request(self._current_request_id)
+    413:         
+    414:         # 取消当前请求
+    415:         if self._current_request_id:
+    417:             if ctx:
+    418:                 ctx.request_cancel("force_release")
+    419:             self._current_request_id = None
+
+C:\Users\mey\Desktop\universalweb-api-main\_conn_test.py:
+  Line 3: import json, sys, urllib.request
+    1: # -*- coding: utf-8 -*-
+    2: """端到端测试：以严格 UTF-8 向中转发请求，验证中文是否被正确送进浏览器。"""
+    4: 
+    5: URL = "http://127.0.0.1:8199/v1/chat/completions"
+    6: 
+  Line 16:     req = urllib.request.Request(
+    13:         ],
+    14:     }
+    15:     data = json.dumps(body).encode("utf-8")
+    17:         URL, data=data,
+    18:         headers={"Content-Type": "application/json; charset=utf-8"},
+    19:         method="POST",
+  Line 23:         with urllib.request.urlopen(req, timeout=120) as r:
+    20:     )
+    21:     print(f"\n===== [{label}] 发送: {text!r} =====", flush=True)
+    22:     try:
+    24:             resp = json.loads(r.read().decode("utf-8"))
+    25:         msg = resp["choices"][0]["message"]["content"]
+    26:         print(f"----- 中转返回内容:\n{msg}", flush=True)
+
+C:\Users\mey\Desktop\universalweb-api-main\tests\test_tool_relay.py:
+  Line 135:     for v in ("readFile", "read-file", "READ_FILE", "readfile"):
+    132: 
+    133: def test_match_normalized_variants():
+    134:     t = Conformer.normalize_tools(ide_tools())
+    136:         fn = Conformer.match_tool(v, t)
+    137:         assert fn is not None and fn["name"] == "read_file", v
+    138: 
+  Line 292:         '{"name": "readFile", "arguments": {"file_path": "a.py"}}')
+    289: def test_conform_call_renames_tool_and_args():
+    290:     p = Parser(known_tools=ide_tools())
+    291:     calls = p._parse_json_multi(
+    293:     assert len(calls) == 1
+    294:     assert calls[0]["function"]["name"] == "read_file"
+    295:     assert args_of(calls[0])["filePath"] == "a.py"
+
+C:\Users\mey\Desktop\universalweb-api-main\config_engine.py:
+  Line 18: from urllib import request, error
+    15: import logging
+    16: import copy  # Added for snapshot
+    17: from typing import Dict, Optional, List, Any
+    19: import bs4
+    20: from bs4 import BeautifulSoup
+    21: 
+  Line 452:             with request.urlopen(req, timeout=ConfigConstants.AI_REQUEST_TIMEOUT) as response:
+    449:                 headers=headers
+    450:             )
+    451:             
+    453:                 response_text = response.read().decode('utf-8')
+    454:             
+    455:             try:
+  Line 551:             with open(self.config_file, "r", encoding="utf-8") as f:
+    548:             # 记录修改时间
+    549:             self.last_mtime = os.path.getmtime(self.config_file)
+    550:             
+    552:                 content = f.read().strip()
+    553:                 if not content:
+    554:                     return {}
+  Line 597:             with open(self.config_file, "r", encoding="utf-8") as f:
+    594:             # 先读取 mtime
+    595:             mtime = os.path.getmtime(self.config_file)
+    596:             
+    598:                 content = f.read().strip()
+    599:                 if not content:
+    600:                     data = {}
+  Line 617:             with open(self.config_file, "w", encoding="utf-8") as f:
+    614:     def _save_config(self):
+    615:         """保存配置文件"""
+    616:         try:
+    618:                 json.dump(self.sites, f, indent=2, ensure_ascii=False)
+    619:             
+    620:             # 写入后更新 last_mtime，防止自己写入触发 refresh_if_changed 的重载
+  Line 763:             with open("sites.json", "w", encoding="utf-8") as f:
+    760:         print("\n--- 模拟外部修改 sites.json ---")
+    761:         time.sleep(1.1) # 确保 mtime 变化
+    762:         try:
+    764:                 json.dump({"test.com": {"selectors": {}, "workflow": []}}, f)
+    765:             print("外部文件已写入")
+    766:             
+
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profile\WasmTtsEngine\20261016.1\offscreen_compiled.js:
+  Line 125: 0?m.return(fetch(k).then(function(n){return n.ok?n.arrayBuffer():Promise.reject(Error("Failed to fetch voice from url: "+k))}).then(function(n){var t,w,A,B,C;return v(function(F){if(F.h==1)return n?F.i(Zh(a,e,n),2):F.return(Promise.reject(Error("Failed to fetch voice from url: "+k)));t=F.l;if(!t)return F.return(Promise.reject(Error("Failed to validate voice data: "+e)));try{a.h.FS.stat(f)}catch(Z){a.h.FS.mkdir(f)}a.h.FS.stat(f);w=Hh(a,f);A=new Uint8Array(n);B=a.h._malloc(A.length);a.h.HEAPU8.set(A,
+    122: function xh(a,b){var c=b.toLowerCase();return c.includes("-")?a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.toLowerCase())===c}):a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.split("-")[0])===c})}
+    123: function Yh(a,b,c){var d,e,f,g,h,k,m,n,t,w;return v(function(A){if(!a.I[b])return A.return(Promise.resolve());d=a.I[b];f=q(Object.entries(a.S));g=f.next();try{for(;!g.done;g=f.next())if(h=g.value,k=q(h),m=k.next().value,n=k.next().value,t=m,w=n,d===w){e=t;break}}finally{ma(f,g)}return e?A.return(Gh(a,e,c)):A.return(Promise.reject(Error("No multivoice found for: "+b)))})}
+    124: function Gh(a,b,c){var d,e,f,g,h,k;return v(function(m){switch(m.h){case 1:if(!a.h)return m.return(Promise.reject(Error("WASM module not initialized.")));m.C(2);return m.i(Yh(a,b,c),4);case 4:m.B(3);break;case 2:return d=m.A(),m.return(Promise.reject(Error(""+d)));case 3:e=a.J[b];if(!e)return m.return(Promise.reject(Error("Invalid voice name: "+b)));f=["/voices",e].join("/");g=[f,"pipeline.pb"].join("/");try{if(h=a.h.FS.stat(g))return m.return(Promise.resolve())}catch(n){}k=a.U[b];return c||k.indexOf("http")!==
+    126: B);C=a.h._GoogleTtsInstallVoice(w,B,n.byteLength);a.h._free(w);a.h._free(B);return C!==1?F.return(Promise.reject(Error("Failed to install voice."))):F.return(new Promise(function(Z,Ta){a.h.FS.syncfs(!1,function(za){za?Ta(za):Z()})}))})})):m.return(Promise.reject(Error("Not downloading remote voice because caller did not request it.")))}})}
+    127: function Fh(a,b){a.extensionId&&(b=a.K!=null?Object.assign({},b,{utteranceId:a.K}):b,chrome.runtime.sendMessage(a.extensionId,{type:"offscreenTtsEventResponse",event:b}))}
+  Line 128: function qh(a){var b,c;return v(function(d){if(d.h==1){if((b=a.h)==null||!b.FS)throw Error("WASM FS not ready for IDBFS setup.");try{a.h.FS.stat("/voices")}catch(e){a.h.FS.mkdir("/voices")}d.C(2);return d.i(new Promise(function(e,f){a.h.FS.mount(a.h.IDBFS,{},"/voices");a.h.FS.syncfs(!0,function(g){g?f(g):e()})}),4)}if(d.h!=2)return d.B(0);c=d.A();throw c;})}
+    130: function wh(a){a.U={};a.S={};a.J={};a.T={};a.I={};var b={},c=q(a.u),d=c.next();try{for(;!d.done;d=c.next()){var e=d.value,f=q(e.speakers),g=f.next();try{for(;!g.done;g=f.next()){var h=g.value;a.S[h.name]=e.id;a.J[h.name]=e.fileId;a.T[h.name]=h.speaker;e.dependentVoiceId&&(a.I[h.name]=e.dependentVoiceId);yh(a,e);a.U[h.name]=e.remote&&e.unloaded?e.url:"/"+e.id+".zvoice";var k=e.id.split("-");if(k.length<2)throw Error("Unexpected voice id format: "+e.id);var m=k[0]+"-"+k[1].toUpperCase();e.language=
+    131: m;e.remote&&e.unloaded||(b[m]||(b[m]=[]),b[m].push(h.name))}}finally{ma(f,g)}}}finally{ma(c,d)}a.extensionId&&chrome.runtime.sendMessage(a.extensionId,{type:"offscreenVoicesResponse",voices:b})}function yh(a,b){try{a.h.FS.stat(["/voices",b.fileId].join("/")),b.unloaded=!1}catch(c){b.unloaded=!0}}
+  Line 129: function rh(a){var b,c,d;return v(function(e){switch(e.h){case 1:return e.C(2),e.i(fetch("voices.json"),4);case 4:b=e.l;if(!b.ok)throw Error("Failed to fetch voices.json: "+b.statusText+" ("+b.status+")");return e.i(b.json(),5);case 5:c=e.l;a.u=c;wh(a);e.B(0);break;case 2:throw d=e.A(),d;}})}
+  Line 132: function zh(a,b){if(a.h)try{var c=a.h.FS.readdir(b),d=q(c),e=d.next();try{for(;!e.done;e=d.next()){var f=e.value;f!=="."&&f!==".."&&a.h.FS.unlink(b+"/"+f)}}finally{ma(d,e)}a.h.FS.rmdir(b);return new Promise(function(g,h){a.h.FS.syncfs(!1,function(k){k?h(k):g()})})}catch(g){return Promise.resolve()}}
+    133: function Zh(a,b,c){var d,e;return v(function(f){if(f.h==1)return f.i($h(c),2);d=f.l;if(!d)return f.return(!1);e=a.u.find(function(g){return g.fileId===b});return f.return(e!==void 0&&e.sha256Checksum===d&&e.compressedSize===c.byteLength)})}
+    134: function $h(a){var b,c,d,e;return v(function(f){if(f.h==1)return crypto&&crypto.subtle?f.i(crypto.subtle.digest("SHA-256",a),2):f.return("");b=f.l;if(!b)return f.return("");c="";for(d=0;d<b.byteLength;d++)e=(new Uint8Array(b))[d],c+=Number(e>>4).toString(16),c+=Number(e&15).toString(16);return f.return(c)})};var ai=new ph,bi=null;
+    135: chrome.runtime.onMessage.addListener(function(a,b,c){bi||(bi=ai.init(b.id));bi.then(function(){switch(a.type){case "init":ai.init(b.id);c({result:"Initialized"});break;case "getLanguageStatus":ai.onLanguageStatusRequest(a.lang).then(c);break;case "installLanguage":ai.onInstallLanguageRequest(a.lang).then(c);break;case "uninstallLanguage":ai.onUninstallLanguageRequest(a.lang).then(c);break;case "removeUnusedLanguage":vh(ai,a.lang).then(function(){c({result:"Removed "+a.lang})});break;case "speak":ai.onSpeak(a.utterance,
+
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc1\WasmTtsEngine\20261016.1\offscreen_compiled.js:
+  Line 125: 0?m.return(fetch(k).then(function(n){return n.ok?n.arrayBuffer():Promise.reject(Error("Failed to fetch voice from url: "+k))}).then(function(n){var t,w,A,B,C;return v(function(F){if(F.h==1)return n?F.i(Zh(a,e,n),2):F.return(Promise.reject(Error("Failed to fetch voice from url: "+k)));t=F.l;if(!t)return F.return(Promise.reject(Error("Failed to validate voice data: "+e)));try{a.h.FS.stat(f)}catch(Z){a.h.FS.mkdir(f)}a.h.FS.stat(f);w=Hh(a,f);A=new Uint8Array(n);B=a.h._malloc(A.length);a.h.HEAPU8.set(A,
+    122: function xh(a,b){var c=b.toLowerCase();return c.includes("-")?a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.toLowerCase())===c}):a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.split("-")[0])===c})}
+    123: function Yh(a,b,c){var d,e,f,g,h,k,m,n,t,w;return v(function(A){if(!a.I[b])return A.return(Promise.resolve());d=a.I[b];f=q(Object.entries(a.S));g=f.next();try{for(;!g.done;g=f.next())if(h=g.value,k=q(h),m=k.next().value,n=k.next().value,t=m,w=n,d===w){e=t;break}}finally{ma(f,g)}return e?A.return(Gh(a,e,c)):A.return(Promise.reject(Error("No multivoice found for: "+b)))})}
+    124: function Gh(a,b,c){var d,e,f,g,h,k;return v(function(m){switch(m.h){case 1:if(!a.h)return m.return(Promise.reject(Error("WASM module not initialized.")));m.C(2);return m.i(Yh(a,b,c),4);case 4:m.B(3);break;case 2:return d=m.A(),m.return(Promise.reject(Error(""+d)));case 3:e=a.J[b];if(!e)return m.return(Promise.reject(Error("Invalid voice name: "+b)));f=["/voices",e].join("/");g=[f,"pipeline.pb"].join("/");try{if(h=a.h.FS.stat(g))return m.return(Promise.resolve())}catch(n){}k=a.U[b];return c||k.indexOf("http")!==
+    126: B);C=a.h._GoogleTtsInstallVoice(w,B,n.byteLength);a.h._free(w);a.h._free(B);return C!==1?F.return(Promise.reject(Error("Failed to install voice."))):F.return(new Promise(function(Z,Ta){a.h.FS.syncfs(!1,function(za){za?Ta(za):Z()})}))})})):m.return(Promise.reject(Error("Not downloading remote voice because caller did not request it.")))}})}
+    127: function Fh(a,b){a.extensionId&&(b=a.K!=null?Object.assign({},b,{utteranceId:a.K}):b,chrome.runtime.sendMessage(a.extensionId,{type:"offscreenTtsEventResponse",event:b}))}
+  Line 128: function qh(a){var b,c;return v(function(d){if(d.h==1){if((b=a.h)==null||!b.FS)throw Error("WASM FS not ready for IDBFS setup.");try{a.h.FS.stat("/voices")}catch(e){a.h.FS.mkdir("/voices")}d.C(2);return d.i(new Promise(function(e,f){a.h.FS.mount(a.h.IDBFS,{},"/voices");a.h.FS.syncfs(!0,function(g){g?f(g):e()})}),4)}if(d.h!=2)return d.B(0);c=d.A();throw c;})}
+    130: function wh(a){a.U={};a.S={};a.J={};a.T={};a.I={};var b={},c=q(a.u),d=c.next();try{for(;!d.done;d=c.next()){var e=d.value,f=q(e.speakers),g=f.next();try{for(;!g.done;g=f.next()){var h=g.value;a.S[h.name]=e.id;a.J[h.name]=e.fileId;a.T[h.name]=h.speaker;e.dependentVoiceId&&(a.I[h.name]=e.dependentVoiceId);yh(a,e);a.U[h.name]=e.remote&&e.unloaded?e.url:"/"+e.id+".zvoice";var k=e.id.split("-");if(k.length<2)throw Error("Unexpected voice id format: "+e.id);var m=k[0]+"-"+k[1].toUpperCase();e.language=
+    131: m;e.remote&&e.unloaded||(b[m]||(b[m]=[]),b[m].push(h.name))}}finally{ma(f,g)}}}finally{ma(c,d)}a.extensionId&&chrome.runtime.sendMessage(a.extensionId,{type:"offscreenVoicesResponse",voices:b})}function yh(a,b){try{a.h.FS.stat(["/voices",b.fileId].join("/")),b.unloaded=!1}catch(c){b.unloaded=!0}}
+  Line 129: function rh(a){var b,c,d;return v(function(e){switch(e.h){case 1:return e.C(2),e.i(fetch("voices.json"),4);case 4:b=e.l;if(!b.ok)throw Error("Failed to fetch voices.json: "+b.statusText+" ("+b.status+")");return e.i(b.json(),5);case 5:c=e.l;a.u=c;wh(a);e.B(0);break;case 2:throw d=e.A(),d;}})}
+  Line 132: function zh(a,b){if(a.h)try{var c=a.h.FS.readdir(b),d=q(c),e=d.next();try{for(;!e.done;e=d.next()){var f=e.value;f!=="."&&f!==".."&&a.h.FS.unlink(b+"/"+f)}}finally{ma(d,e)}a.h.FS.rmdir(b);return new Promise(function(g,h){a.h.FS.syncfs(!1,function(k){k?h(k):g()})})}catch(g){return Promise.resolve()}}
+    133: function Zh(a,b,c){var d,e;return v(function(f){if(f.h==1)return f.i($h(c),2);d=f.l;if(!d)return f.return(!1);e=a.u.find(function(g){return g.fileId===b});return f.return(e!==void 0&&e.sha256Checksum===d&&e.compressedSize===c.byteLength)})}
+    134: function $h(a){var b,c,d,e;return v(function(f){if(f.h==1)return crypto&&crypto.subtle?f.i(crypto.subtle.digest("SHA-256",a),2):f.return("");b=f.l;if(!b)return f.return("");c="";for(d=0;d<b.byteLength;d++)e=(new Uint8Array(b))[d],c+=Number(e>>4).toString(16),c+=Number(e&15).toString(16);return f.return(c)})};var ai=new ph,bi=null;
+    135: chrome.runtime.onMessage.addListener(function(a,b,c){bi||(bi=ai.init(b.id));bi.then(function(){switch(a.type){case "init":ai.init(b.id);c({result:"Initialized"});break;case "getLanguageStatus":ai.onLanguageStatusRequest(a.lang).then(c);break;case "installLanguage":ai.onInstallLanguageRequest(a.lang).then(c);break;case "uninstallLanguage":ai.onUninstallLanguageRequest(a.lang).then(c);break;case "removeUnusedLanguage":vh(ai,a.lang).then(function(){c({result:"Removed "+a.lang})});break;case "speak":ai.onSpeak(a.utterance,
+
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc12\WasmTtsEngine\20261016.1\offscreen_compiled.js:
+  Line 125: 0?m.return(fetch(k).then(function(n){return n.ok?n.arrayBuffer():Promise.reject(Error("Failed to fetch voice from url: "+k))}).then(function(n){var t,w,A,B,C;return v(function(F){if(F.h==1)return n?F.i(Zh(a,e,n),2):F.return(Promise.reject(Error("Failed to fetch voice from url: "+k)));t=F.l;if(!t)return F.return(Promise.reject(Error("Failed to validate voice data: "+e)));try{a.h.FS.stat(f)}catch(Z){a.h.FS.mkdir(f)}a.h.FS.stat(f);w=Hh(a,f);A=new Uint8Array(n);B=a.h._malloc(A.length);a.h.HEAPU8.set(A,
+    122: function xh(a,b){var c=b.toLowerCase();return c.includes("-")?a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.toLowerCase())===c}):a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.split("-")[0])===c})}
+    123: function Yh(a,b,c){var d,e,f,g,h,k,m,n,t,w;return v(function(A){if(!a.I[b])return A.return(Promise.resolve());d=a.I[b];f=q(Object.entries(a.S));g=f.next();try{for(;!g.done;g=f.next())if(h=g.value,k=q(h),m=k.next().value,n=k.next().value,t=m,w=n,d===w){e=t;break}}finally{ma(f,g)}return e?A.return(Gh(a,e,c)):A.return(Promise.reject(Error("No multivoice found for: "+b)))})}
+    124: function Gh(a,b,c){var d,e,f,g,h,k;return v(function(m){switch(m.h){case 1:if(!a.h)return m.return(Promise.reject(Error("WASM module not initialized.")));m.C(2);return m.i(Yh(a,b,c),4);case 4:m.B(3);break;case 2:return d=m.A(),m.return(Promise.reject(Error(""+d)));case 3:e=a.J[b];if(!e)return m.return(Promise.reject(Error("Invalid voice name: "+b)));f=["/voices",e].join("/");g=[f,"pipeline.pb"].join("/");try{if(h=a.h.FS.stat(g))return m.return(Promise.resolve())}catch(n){}k=a.U[b];return c||k.indexOf("http")!==
+    126: B);C=a.h._GoogleTtsInstallVoice(w,B,n.byteLength);a.h._free(w);a.h._free(B);return C!==1?F.return(Promise.reject(Error("Failed to install voice."))):F.return(new Promise(function(Z,Ta){a.h.FS.syncfs(!1,function(za){za?Ta(za):Z()})}))})})):m.return(Promise.reject(Error("Not downloading remote voice because caller did not request it.")))}})}
+    127: function Fh(a,b){a.extensionId&&(b=a.K!=null?Object.assign({},b,{utteranceId:a.K}):b,chrome.runtime.sendMessage(a.extensionId,{type:"offscreenTtsEventResponse",event:b}))}
+  Line 128: function qh(a){var b,c;return v(function(d){if(d.h==1){if((b=a.h)==null||!b.FS)throw Error("WASM FS not ready for IDBFS setup.");try{a.h.FS.stat("/voices")}catch(e){a.h.FS.mkdir("/voices")}d.C(2);return d.i(new Promise(function(e,f){a.h.FS.mount(a.h.IDBFS,{},"/voices");a.h.FS.syncfs(!0,function(g){g?f(g):e()})}),4)}if(d.h!=2)return d.B(0);c=d.A();throw c;})}
+    130: function wh(a){a.U={};a.S={};a.J={};a.T={};a.I={};var b={},c=q(a.u),d=c.next();try{for(;!d.done;d=c.next()){var e=d.value,f=q(e.speakers),g=f.next();try{for(;!g.done;g=f.next()){var h=g.value;a.S[h.name]=e.id;a.J[h.name]=e.fileId;a.T[h.name]=h.speaker;e.dependentVoiceId&&(a.I[h.name]=e.dependentVoiceId);yh(a,e);a.U[h.name]=e.remote&&e.unloaded?e.url:"/"+e.id+".zvoice";var k=e.id.split("-");if(k.length<2)throw Error("Unexpected voice id format: "+e.id);var m=k[0]+"-"+k[1].toUpperCase();e.language=
+    131: m;e.remote&&e.unloaded||(b[m]||(b[m]=[]),b[m].push(h.name))}}finally{ma(f,g)}}}finally{ma(c,d)}a.extensionId&&chrome.runtime.sendMessage(a.extensionId,{type:"offscreenVoicesResponse",voices:b})}function yh(a,b){try{a.h.FS.stat(["/voices",b.fileId].join("/")),b.unloaded=!1}catch(c){b.unloaded=!0}}
+  Line 129: function rh(a){var b,c,d;return v(function(e){switch(e.h){case 1:return e.C(2),e.i(fetch("voices.json"),4);case 4:b=e.l;if(!b.ok)throw Error("Failed to fetch voices.json: "+b.statusText+" ("+b.status+")");return e.i(b.json(),5);case 5:c=e.l;a.u=c;wh(a);e.B(0);break;case 2:throw d=e.A(),d;}})}
+  Line 132: function zh(a,b){if(a.h)try{var c=a.h.FS.readdir(b),d=q(c),e=d.next();try{for(;!e.done;e=d.next()){var f=e.value;f!=="."&&f!==".."&&a.h.FS.unlink(b+"/"+f)}}finally{ma(d,e)}a.h.FS.rmdir(b);return new Promise(function(g,h){a.h.FS.syncfs(!1,function(k){k?h(k):g()})})}catch(g){return Promise.resolve()}}
+    133: function Zh(a,b,c){var d,e;return v(function(f){if(f.h==1)return f.i($h(c),2);d=f.l;if(!d)return f.return(!1);e=a.u.find(function(g){return g.fileId===b});return f.return(e!==void 0&&e.sha256Checksum===d&&e.compressedSize===c.byteLength)})}
+    134: function $h(a){var b,c,d,e;return v(function(f){if(f.h==1)return crypto&&crypto.subtle?f.i(crypto.subtle.digest("SHA-256",a),2):f.return("");b=f.l;if(!b)return f.return("");c="";for(d=0;d<b.byteLength;d++)e=(new Uint8Array(b))[d],c+=Number(e>>4).toString(16),c+=Number(e&15).toString(16);return f.return(c)})};var ai=new ph,bi=null;
+    135: chrome.runtime.onMessage.addListener(function(a,b,c){bi||(bi=ai.init(b.id));bi.then(function(){switch(a.type){case "init":ai.init(b.id);c({result:"Initialized"});break;case "getLanguageStatus":ai.onLanguageStatusRequest(a.lang).then(c);break;case "installLanguage":ai.onInstallLanguageRequest(a.lang).then(c);break;case "uninstallLanguage":ai.onUninstallLanguageRequest(a.lang).then(c);break;case "removeUnusedLanguage":vh(ai,a.lang).then(function(){c({result:"Removed "+a.lang})});break;case "speak":ai.onSpeak(a.utterance,
+
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc2\WasmTtsEngine\20261016.1\offscreen_compiled.js:
+  Line 125: 0?m.return(fetch(k).then(function(n){return n.ok?n.arrayBuffer():Promise.reject(Error("Failed to fetch voice from url: "+k))}).then(function(n){var t,w,A,B,C;return v(function(F){if(F.h==1)return n?F.i(Zh(a,e,n),2):F.return(Promise.reject(Error("Failed to fetch voice from url: "+k)));t=F.l;if(!t)return F.return(Promise.reject(Error("Failed to validate voice data: "+e)));try{a.h.FS.stat(f)}catch(Z){a.h.FS.mkdir(f)}a.h.FS.stat(f);w=Hh(a,f);A=new Uint8Array(n);B=a.h._malloc(A.length);a.h.HEAPU8.set(A,
+    122: function xh(a,b){var c=b.toLowerCase();return c.includes("-")?a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.toLowerCase())===c}):a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.split("-")[0])===c})}
+    123: function Yh(a,b,c){var d,e,f,g,h,k,m,n,t,w;return v(function(A){if(!a.I[b])return A.return(Promise.resolve());d=a.I[b];f=q(Object.entries(a.S));g=f.next();try{for(;!g.done;g=f.next())if(h=g.value,k=q(h),m=k.next().value,n=k.next().value,t=m,w=n,d===w){e=t;break}}finally{ma(f,g)}return e?A.return(Gh(a,e,c)):A.return(Promise.reject(Error("No multivoice found for: "+b)))})}
+    124: function Gh(a,b,c){var d,e,f,g,h,k;return v(function(m){switch(m.h){case 1:if(!a.h)return m.return(Promise.reject(Error("WASM module not initialized.")));m.C(2);return m.i(Yh(a,b,c),4);case 4:m.B(3);break;case 2:return d=m.A(),m.return(Promise.reject(Error(""+d)));case 3:e=a.J[b];if(!e)return m.return(Promise.reject(Error("Invalid voice name: "+b)));f=["/voices",e].join("/");g=[f,"pipeline.pb"].join("/");try{if(h=a.h.FS.stat(g))return m.return(Promise.resolve())}catch(n){}k=a.U[b];return c||k.indexOf("http")!==
+    126: B);C=a.h._GoogleTtsInstallVoice(w,B,n.byteLength);a.h._free(w);a.h._free(B);return C!==1?F.return(Promise.reject(Error("Failed to install voice."))):F.return(new Promise(function(Z,Ta){a.h.FS.syncfs(!1,function(za){za?Ta(za):Z()})}))})})):m.return(Promise.reject(Error("Not downloading remote voice because caller did not request it.")))}})}
+    127: function Fh(a,b){a.extensionId&&(b=a.K!=null?Object.assign({},b,{utteranceId:a.K}):b,chrome.runtime.sendMessage(a.extensionId,{type:"offscreenTtsEventResponse",event:b}))}
+  Line 128: function qh(a){var b,c;return v(function(d){if(d.h==1){if((b=a.h)==null||!b.FS)throw Error("WASM FS not ready for IDBFS setup.");try{a.h.FS.stat("/voices")}catch(e){a.h.FS.mkdir("/voices")}d.C(2);return d.i(new Promise(function(e,f){a.h.FS.mount(a.h.IDBFS,{},"/voices");a.h.FS.syncfs(!0,function(g){g?f(g):e()})}),4)}if(d.h!=2)return d.B(0);c=d.A();throw c;})}
+    130: function wh(a){a.U={};a.S={};a.J={};a.T={};a.I={};var b={},c=q(a.u),d=c.next();try{for(;!d.done;d=c.next()){var e=d.value,f=q(e.speakers),g=f.next();try{for(;!g.done;g=f.next()){var h=g.value;a.S[h.name]=e.id;a.J[h.name]=e.fileId;a.T[h.name]=h.speaker;e.dependentVoiceId&&(a.I[h.name]=e.dependentVoiceId);yh(a,e);a.U[h.name]=e.remote&&e.unloaded?e.url:"/"+e.id+".zvoice";var k=e.id.split("-");if(k.length<2)throw Error("Unexpected voice id format: "+e.id);var m=k[0]+"-"+k[1].toUpperCase();e.language=
+    131: m;e.remote&&e.unloaded||(b[m]||(b[m]=[]),b[m].push(h.name))}}finally{ma(f,g)}}}finally{ma(c,d)}a.extensionId&&chrome.runtime.sendMessage(a.extensionId,{type:"offscreenVoicesResponse",voices:b})}function yh(a,b){try{a.h.FS.stat(["/voices",b.fileId].join("/")),b.unloaded=!1}catch(c){b.unloaded=!0}}
+  Line 129: function rh(a){var b,c,d;return v(function(e){switch(e.h){case 1:return e.C(2),e.i(fetch("voices.json"),4);case 4:b=e.l;if(!b.ok)throw Error("Failed to fetch voices.json: "+b.statusText+" ("+b.status+")");return e.i(b.json(),5);case 5:c=e.l;a.u=c;wh(a);e.B(0);break;case 2:throw d=e.A(),d;}})}
+  Line 132: function zh(a,b){if(a.h)try{var c=a.h.FS.readdir(b),d=q(c),e=d.next();try{for(;!e.done;e=d.next()){var f=e.value;f!=="."&&f!==".."&&a.h.FS.unlink(b+"/"+f)}}finally{ma(d,e)}a.h.FS.rmdir(b);return new Promise(function(g,h){a.h.FS.syncfs(!1,function(k){k?h(k):g()})})}catch(g){return Promise.resolve()}}
+    133: function Zh(a,b,c){var d,e;return v(function(f){if(f.h==1)return f.i($h(c),2);d=f.l;if(!d)return f.return(!1);e=a.u.find(function(g){return g.fileId===b});return f.return(e!==void 0&&e.sha256Checksum===d&&e.compressedSize===c.byteLength)})}
+    134: function $h(a){var b,c,d,e;return v(function(f){if(f.h==1)return crypto&&crypto.subtle?f.i(crypto.subtle.digest("SHA-256",a),2):f.return("");b=f.l;if(!b)return f.return("");c="";for(d=0;d<b.byteLength;d++)e=(new Uint8Array(b))[d],c+=Number(e>>4).toString(16),c+=Number(e&15).toString(16);return f.return(c)})};var ai=new ph,bi=null;
+    135: chrome.runtime.onMessage.addListener(function(a,b,c){bi||(bi=ai.init(b.id));bi.then(function(){switch(a.type){case "init":ai.init(b.id);c({result:"Initialized"});break;case "getLanguageStatus":ai.onLanguageStatusRequest(a.lang).then(c);break;case "installLanguage":ai.onInstallLanguageRequest(a.lang).then(c);break;case "uninstallLanguage":ai.onUninstallLanguageRequest(a.lang).then(c);break;case "removeUnusedLanguage":vh(ai,a.lang).then(function(){c({result:"Removed "+a.lang})});break;case "speak":ai.onSpeak(a.utterance,
+
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\WasmTtsEngine\20261016.1\offscreen_compiled.js:
+  Line 125: 0?m.return(fetch(k).then(function(n){return n.ok?n.arrayBuffer():Promise.reject(Error("Failed to fetch voice from url: "+k))}).then(function(n){var t,w,A,B,C;return v(function(F){if(F.h==1)return n?F.i(Zh(a,e,n),2):F.return(Promise.reject(Error("Failed to fetch voice from url: "+k)));t=F.l;if(!t)return F.return(Promise.reject(Error("Failed to validate voice data: "+e)));try{a.h.FS.stat(f)}catch(Z){a.h.FS.mkdir(f)}a.h.FS.stat(f);w=Hh(a,f);A=new Uint8Array(n);B=a.h._malloc(A.length);a.h.HEAPU8.set(A,
+    122: function xh(a,b){var c=b.toLowerCase();return c.includes("-")?a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.toLowerCase())===c}):a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.split("-")[0])===c})}
+    123: function Yh(a,b,c){var d,e,f,g,h,k,m,n,t,w;return v(function(A){if(!a.I[b])return A.return(Promise.resolve());d=a.I[b];f=q(Object.entries(a.S));g=f.next();try{for(;!g.done;g=f.next())if(h=g.value,k=q(h),m=k.next().value,n=k.next().value,t=m,w=n,d===w){e=t;break}}finally{ma(f,g)}return e?A.return(Gh(a,e,c)):A.return(Promise.reject(Error("No multivoice found for: "+b)))})}
+    124: function Gh(a,b,c){var d,e,f,g,h,k;return v(function(m){switch(m.h){case 1:if(!a.h)return m.return(Promise.reject(Error("WASM module not initialized.")));m.C(2);return m.i(Yh(a,b,c),4);case 4:m.B(3);break;case 2:return d=m.A(),m.return(Promise.reject(Error(""+d)));case 3:e=a.J[b];if(!e)return m.return(Promise.reject(Error("Invalid voice name: "+b)));f=["/voices",e].join("/");g=[f,"pipeline.pb"].join("/");try{if(h=a.h.FS.stat(g))return m.return(Promise.resolve())}catch(n){}k=a.U[b];return c||k.indexOf("http")!==
+    126: B);C=a.h._GoogleTtsInstallVoice(w,B,n.byteLength);a.h._free(w);a.h._free(B);return C!==1?F.return(Promise.reject(Error("Failed to install voice."))):F.return(new Promise(function(Z,Ta){a.h.FS.syncfs(!1,function(za){za?Ta(za):Z()})}))})})):m.return(Promise.reject(Error("Not downloading remote voice because caller did not request it.")))}})}
+    127: function Fh(a,b){a.extensionId&&(b=a.K!=null?Object.assign({},b,{utteranceId:a.K}):b,chrome.runtime.sendMessage(a.extensionId,{type:"offscreenTtsEventResponse",event:b}))}
+  Line 128: function qh(a){var b,c;return v(function(d){if(d.h==1){if((b=a.h)==null||!b.FS)throw Error("WASM FS not ready for IDBFS setup.");try{a.h.FS.stat("/voices")}catch(e){a.h.FS.mkdir("/voices")}d.C(2);return d.i(new Promise(function(e,f){a.h.FS.mount(a.h.IDBFS,{},"/voices");a.h.FS.syncfs(!0,function(g){g?f(g):e()})}),4)}if(d.h!=2)return d.B(0);c=d.A();throw c;})}
+    130: function wh(a){a.U={};a.S={};a.J={};a.T={};a.I={};var b={},c=q(a.u),d=c.next();try{for(;!d.done;d=c.next()){var e=d.value,f=q(e.speakers),g=f.next();try{for(;!g.done;g=f.next()){var h=g.value;a.S[h.name]=e.id;a.J[h.name]=e.fileId;a.T[h.name]=h.speaker;e.dependentVoiceId&&(a.I[h.name]=e.dependentVoiceId);yh(a,e);a.U[h.name]=e.remote&&e.unloaded?e.url:"/"+e.id+".zvoice";var k=e.id.split("-");if(k.length<2)throw Error("Unexpected voice id format: "+e.id);var m=k[0]+"-"+k[1].toUpperCase();e.language=
+    131: m;e.remote&&e.unloaded||(b[m]||(b[m]=[]),b[m].push(h.name))}}finally{ma(f,g)}}}finally{ma(c,d)}a.extensionId&&chrome.runtime.sendMessage(a.extensionId,{type:"offscreenVoicesResponse",voices:b})}function yh(a,b){try{a.h.FS.stat(["/voices",b.fileId].join("/")),b.unloaded=!1}catch(c){b.unloaded=!0}}
+  Line 129: function rh(a){var b,c,d;return v(function(e){switch(e.h){case 1:return e.C(2),e.i(fetch("voices.json"),4);case 4:b=e.l;if(!b.ok)throw Error("Failed to fetch voices.json: "+b.statusText+" ("+b.status+")");return e.i(b.json(),5);case 5:c=e.l;a.u=c;wh(a);e.B(0);break;case 2:throw d=e.A(),d;}})}
+  Line 132: function zh(a,b){if(a.h)try{var c=a.h.FS.readdir(b),d=q(c),e=d.next();try{for(;!e.done;e=d.next()){var f=e.value;f!=="."&&f!==".."&&a.h.FS.unlink(b+"/"+f)}}finally{ma(d,e)}a.h.FS.rmdir(b);return new Promise(function(g,h){a.h.FS.syncfs(!1,function(k){k?h(k):g()})})}catch(g){return Promise.resolve()}}
+    133: function Zh(a,b,c){var d,e;return v(function(f){if(f.h==1)return f.i($h(c),2);d=f.l;if(!d)return f.return(!1);e=a.u.find(function(g){return g.fileId===b});return f.return(e!==void 0&&e.sha256Checksum===d&&e.compressedSize===c.byteLength)})}
+    134: function $h(a){var b,c,d,e;return v(function(f){if(f.h==1)return crypto&&crypto.subtle?f.i(crypto.subtle.digest("SHA-256",a),2):f.return("");b=f.l;if(!b)return f.return("");c="";for(d=0;d<b.byteLength;d++)e=(new Uint8Array(b))[d],c+=Number(e>>4).toString(16),c+=Number(e&15).toString(16);return f.return(c)})};var ai=new ph,bi=null;
+    135: chrome.runtime.onMessage.addListener(function(a,b,c){bi||(bi=ai.init(b.id));bi.then(function(){switch(a.type){case "init":ai.init(b.id);c({result:"Initialized"});break;case "getLanguageStatus":ai.onLanguageStatusRequest(a.lang).then(c);break;case "installLanguage":ai.onInstallLanguageRequest(a.lang).then(c);break;case "uninstallLanguage":ai.onUninstallLanguageRequest(a.lang).then(c);break;case "removeUnusedLanguage":vh(ai,a.lang).then(function(){c({result:"Removed "+a.lang})});break;case "speak":ai.onSpeak(a.utterance,
+
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc4\WasmTtsEngine\20261016.1\offscreen_compiled.js:
+  Line 125: 0?m.return(fetch(k).then(function(n){return n.ok?n.arrayBuffer():Promise.reject(Error("Failed to fetch voice from url: "+k))}).then(function(n){var t,w,A,B,C;return v(function(F){if(F.h==1)return n?F.i(Zh(a,e,n),2):F.return(Promise.reject(Error("Failed to fetch voice from url: "+k)));t=F.l;if(!t)return F.return(Promise.reject(Error("Failed to validate voice data: "+e)));try{a.h.FS.stat(f)}catch(Z){a.h.FS.mkdir(f)}a.h.FS.stat(f);w=Hh(a,f);A=new Uint8Array(n);B=a.h._malloc(A.length);a.h.HEAPU8.set(A,
+    122: function xh(a,b){var c=b.toLowerCase();return c.includes("-")?a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.toLowerCase())===c}):a.u.filter(function(d){var e;return((e=d.language)==null?void 0:e.split("-")[0])===c})}
+    123: function Yh(a,b,c){var d,e,f,g,h,k,m,n,t,w;return v(function(A){if(!a.I[b])return A.return(Promise.resolve());d=a.I[b];f=q(Object.entries(a.S));g=f.next();try{for(;!g.done;g=f.next())if(h=g.value,k=q(h),m=k.next().value,n=k.next().value,t=m,w=n,d===w){e=t;break}}finally{ma(f,g)}return e?A.return(Gh(a,e,c)):A.return(Promise.reject(Error("No multivoice found for: "+b)))})}
+    124: function Gh(a,b,c){var d,e,f,g,h,k;return v(function(m){switch(m.h){case 1:if(!a.h)return m.return(Promise.reject(Error("WASM module not initialized.")));m.C(2);return m.i(Yh(a,b,c),4);case 4:m.B(3);break;case 2:return d=m.A(),m.return(Promise.reject(Error(""+d)));case 3:e=a.J[b];if(!e)return m.return(Promise.reject(Error("Invalid voice name: "+b)));f=["/voices",e].join("/");g=[f,"pipeline.pb"].join("/");try{if(h=a.h.FS.stat(g))return m.return(Promise.resolve())}catch(n){}k=a.U[b];return c||k.indexOf("http")!==
+    126: B);C=a.h._GoogleTtsInstallVoice(w,B,n.byteLength);a.h._free(w);a.h._free(B);return C!==1?F.return(Promise.reject(Error("Failed to install voice."))):F.return(new Promise(function(Z,Ta){a.h.FS.syncfs(!1,function(za){za?Ta(za):Z()})}))})})):m.return(Promise.reject(Error("Not downloading remote voice because caller did not request it.")))}})}
+    127: function Fh(a,b){a.extensionId&&(b=a.K!=null?Object.assign({},b,{utteranceId:a.K}):b,chrome.runtime.sendMessage(a.extensionId,{type:"offscreenTtsEventResponse",event:b}))}
+  Line 128: function qh(a){var b,c;return v(function(d){if(d.h==1){if((b=a.h)==null||!b.FS)throw Error("WASM FS not ready for IDBFS setup.");try{a.h.FS.stat("/voices")}catch(e){a.h.FS.mkdir("/voices")}d.C(2);return d.i(new Promise(function(e,f){a.h.FS.mount(a.h.IDBFS,{},"/voices");a.h.FS.syncfs(!0,function(g){g?f(g):e()})}),4)}if(d.h!=2)return d.B(0);c=d.A();throw c;})}
+    130: function wh(a){a.U={};a.S={};a.J={};a.T={};a.I={};var b={},c=q(a.u),d=c.next();try{for(;!d.done;d=c.next()){var e=d.value,f=q(e.speakers),g=f.next();try{for(;!g.done;g=f.next()){var h=g.value;a.S[h.name]=e.id;a.J[h.name]=e.fileId;a.T[h.name]=h.speaker;e.dependentVoiceId&&(a.I[h.name]=e.dependentVoiceId);yh(a,e);a.U[h.name]=e.remote&&e.unloaded?e.url:"/"+e.id+".zvoice";var k=e.id.split("-");if(k.length<2)throw Error("Unexpected voice id format: "+e.id);var m=k[0]+"-"+k[1].toUpperCase();e.language=
+    131: m;e.remote&&e.unloaded||(b[m]||(b[m]=[]),b[m].push(h.name))}}finally{ma(f,g)}}}finally{ma(c,d)}a.extensionId&&chrome.runtime.sendMessage(a.extensionId,{type:"offscreenVoicesResponse",voices:b})}function yh(a,b){try{a.h.FS.stat(["/voices",b.fileId].join("/")),b.unloaded=!1}catch(c){b.unloaded=!0}}
+  Line 129: function rh(a){var b,c,d;return v(function(e){switch(e.h){case 1:return e.C(2),e.i(fetch("voices.json"),4);case 4:b=e.l;if(!b.ok)throw Error("Failed to fetch voices.json: "+b.statusText+" ("+b.status+")");return e.i(b.json(),5);case 5:c=e.l;a.u=c;wh(a);e.B(0);break;case 2:throw d=e.A(),d;}})}
+
+(Output truncated due to token limit: showing 93 of 100 results. Use a more specific path or pattern to narrow results.)
+
+[tool_result name=call_eb56955471244838a44a1bfa]
+File not found: C:\Users\mey\Desktop\universalweb-api-main\package.json
+
+[tool_result name=call_7a84b2269e24466580f9b8ff]
+<persisted-output>
+Output too large (72 bytes). Full output saved to: c:\Users\mey\.codeartsdoer\codearts-data\tool-output\tool_1a58c7070001LB0ri3ym2KuzY2
+
+Preview (first 2KB):
+C:\Users\mey\Desktop\universalweb-api-main\chrome_profiles\acc3\lockfile
+</persisted-output>
+
+[tool_result name=call_bef129d6b3fe4938b18f4972]
+<persisted-output>
+Output too large (14 bytes). Full output saved to: c:\Users\mey\.codeartsdoer\codearts-data\tool-output\tool_1a58c70710014X8ziuxYaS6FcG
+
+Preview (first 2KB):
+No files found
+</persisted-output>
+
+[tool_result name=call_762a2be8449c4c84bb42507a]
+Found 646 matches (showing newest 100)
+C:\Users\mey\Desktop\universalweb-api-main\browser_core.py:
+  Line 219:         for seg in m.split("/"):
+    217:     # 复合 id 分段匹配（段内不再含 "/"，递归安全）
+    218:     if "/" in m:
+    220:             seg = seg.strip()
+    221:             if seg and "/" not in seg:
+  Line 240:     segs = [s.strip() for s in m.split("/") if s.strip()]
+    238:     if not m or "/" not in m or m.lower() in ("web-browser", "default"):
+    239:         return ""
+    241:     if not segs:
+    242:         return ""
+  Line 263:     parts = [p for p in entry.split("/") if p]
+    261:     out: List[str] = []
+    262:     entry = str(cfg.get("entry_url") or "")
+    264:     # https://poe.com/Assistant → ['https:', 'poe.com', 'Assistant']，
+    265:     # 尾段 Assistant；无路径段（仅域名）→ ""
+  Line 514:             parts = key.split(":")
+    512:             data = cls._load()
+    513:         for key, rec in data.items():
+    515:             if len(parts) < 2 or parts[1] != str(port):
+    516:                 continue
+  Line 2040:                 desc = (fn.get("description") or "").strip().split("\n")[0]
+    2038:                     param_parts.append(f"{k}: {vtype} ({req})")
+    2039:                 param_str = ", ".join(param_parts) if param_parts else "无参数"
+    2041:                 if len(desc) > 80:
+    2042:                     desc = desc[:80] + "..."
+  Line 2683:                         _cur = (self.tab.url or "").split('?')[0].rstrip('/')
+    2681:                     _same_page = False
+    2682:                     try:
+    2685:                         _same_page = bool(_cur) and _cur == _target
+  Line 2684:                         _target = url.split('?')[0].rstrip('/')
+    2686:                     except Exception:
+  Line 2930:         "  if (!/M6 18 18 6/.test(d)) return;"
+    2928:         "region.querySelectorAll('svg path').forEach(p => {"
+    2929:         "  const d = p.getAttribute('d') || '';"
+    2931:         "  const b = p.closest('button');"
+    2932:         "  if (!b || seen.has(b)) return;"
+  Line 3003:             state["url"] = (self.tab.url or "").split('?')[0]
+    3001:         state = {"input_len": -1, "msg_count": -1, "url": ""}
+    3002:         try:
+    3004:         except Exception:
+    3005:             pass
+  Line 3031:         "return /登录|请登录|扫码登录|sign ?in|log ?in/i.test(t);")
+    3029:         "if(!ov) return false;"
+    3030:         "let t=((ov.parentElement&&ov.parentElement.innerText)||'')+' '+(ov.innerText||'');"
+    3032: 
+    3033:     def _detect_login_modal(self, tab=None) -> bool:
+  Line 3070:                     cur_url = (self.tab.url or "").split('?')[0]
+    3068:                 time.sleep(0.5)
+    3069:                 try:
+    3071:                     if pre_url and cur_url and cur_url != pre_url:
+    3072:                         return True
+  Line 3119:                 f"url={(self.tab.url or '').split('?')[0]}")
+    3117:             logger.info(
+    3118:                 f"[Send] 校验失败详情 pre={pre_state} now={now} "
+    3120:         except Exception:
+    3121:             pass
+  Line 3181:                         if (/^\\d{1,2}:\\d{2}$/.test(tt)) { return; }
+    3179:                     if (!isRoot && node.children && node.children.length === 0) {
+    3180:                         const tt = (node.textContent || '').trim();
+    3182:                     }
+    3183:                     let style = null;
+  Line 3192:                     const myThink = inThink || (!isRoot && THINK_RE.test(cls));
+    3190:                               (node.id || '');
+    3191:                     } catch (e) {}
+    3193:                     const isBlock = BLOCK[tag] === 1 ||
+    3194:                                     (style && style.display === 'block');
+  Line 3220:                                 || /cursor-pointer/.test(String(anc.className || ''))) {
+    3218:                             if (anc.tagName === 'BUTTON'
+    3219:                                 || anc.getAttribute('role') === 'button'
+    3221:                                 try { anc.click(); } catch (e) {}
+    3222:                                 break;
+  Line 3281:                 classes = cls.split()[:2]
+    3279:                 tag = element.tag if hasattr(element, 'tag') else 'unknown'
+    3280:                 cls = element.attr('class') or ''
+    3282:                 if classes:
+    3283:                     return f"tag:{tag}|class:{'.'.join(classes)}"
+  Line 3304:                             || /cursor-pointer/.test(String(anc.className || ''))) {
+    3302:                         if (anc.tagName === 'BUTTON'
+    3303:                             || anc.getAttribute('role') === 'button'
+    3305:                             try { anc.click(); } catch (e) {}
+    3306:                             break;
+  Line 3495:                         for _ln in _page_text.split('\n'):
+    3493:                             yield self.formatter.pack_role_chunk()
+    3494:                         _line = ''
+    3496:                             if CREDIT_EXHAUSTED_RE.search(_ln):
+    3497:                                 _line = _ln.strip()
+  Line 4273:                     old_page.quit(timeout=5)
+    4271:             if old_page is not None and old_port:
+    4272:                 try:
+    4274:                     logger.info(f"[Instance] 已关闭原实例窗口 :{old_port}")
+    4275:                 except Exception as _e:
+  Line 4522:                         domain = tab.url.split("//")[-1].split("/")[0]
+    4520:                 else:
+    4521:                     try:
+    4523:                     except Exception:
+    4524:                         yield self.formatter.pack_error("无法解析页面URL")
+
+C:\Users\mey\Desktop\universalweb-api-main\main.py:
+  Line 104:     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+    102:     DEBUG = os.getenv("APP_DEBUG", "false").lower() == "true"
+    103:     
+    105:     CORS_ENABLED = os.getenv("CORS_ENABLED", "true").lower() == "true"
+    106:     
+  Line 177:     def emit(self, record):
+    175: 
+    176: class WebLogHandler(logging.Handler):
+    178:         try:
+    179:             msg = self.format(record)
+  Line 436:             finish_part = chunk.split("data: [DONE]")[0].rstrip()
+    434:         if (include_usage and isinstance(chunk, str)
+    435:                 and '"finish_reason"' in chunk and "data: [DONE]" in chunk):
+    437:             usage = {
+    438:                 "prompt_tokens": max(prompt_chars // 4, 1),
+  Line 446:                 for event in chunk.split("\n\n"):
+    444:         if isinstance(chunk, str) and '"content"' in chunk:
+    445:             try:
+    447:                     event = event.strip()
+    448:                     if event.startswith("data: ") and "[DONE]" not in event:
+  Line 871:                 chunk_queue.get_nowait()
+    869:         try:
+    870:             while not chunk_queue.empty():
+    872:         except:
+    873:             pass
+  Line 906:         for event in chunk.split("\n\n"):
+    904:             continue
+    905:         # 单个 chunk 可能包含多个 SSE 事件（如 finish 块 + [DONE]），按边界拆分
+    907:             event = event.strip()
+    908:             if not event.startswith("data: "):
+  Line 1143:                     key, value = line.split('=', 1)
+    1141:                         continue
+    1142:                     
+    1144:                     key = key.strip()
+    1145:                     value = value.strip()
+  Line 1152:                     elif value.isdigit():
+    1150:                     elif value.lower() == 'false':
+    1151:                         value = False
+    1153:                         value = int(value)
+    1154:                     elif re.match(r'^\d+\.\d+$', value):
+  Line 1198:                 key = stripped.split('=', 1)[0].strip()
+    1196:             # 处理配置行
+    1197:             if '=' in stripped:
+    1199:                 
+    1200:                 if key in new_config:
+  Line 1525:                 if pid.isdigit():
+    1523:                     capture_output=True, text=True, timeout=10)
+    1524:                 pid = ps.stdout.strip().splitlines()[-1].strip() if ps.stdout.strip() else ""
+    1526:                     subprocess.run(["taskkill", "/PID", pid, "/T", "/F"],
+    1527:                                    capture_output=True, timeout=10)
+
+C:\Users\mey\Desktop\universalweb-api-main\tests\test_api_ide.py:
+  Line 13: import pytest
+    11: from pathlib import Path
+    12: 
+    14: 
+    15: sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+  Line 89: @pytest.fixture
+    87: 
+    88: 
+    90: def client(monkeypatch):
+    91:     from fastapi.testclient import TestClient
+  Line 100:     for block in raw_text.split("\n\n"):
+    98: def parse_sse(raw_text):
+    99:     events = []
+    101:         block = block.strip()
+    102:         if block.startswith("data: "):
+  Line 116:     assert r.status_code == 200
+    114:     c, _ = client
+    115:     r = c.get("/v1/models")
+    117:     data = r.json()
+  Line 118:     assert data["object"] == "list"
+    120: 
+  Line 119:     assert any(m["id"] == "web-browser" for m in data["data"])
+    121: 
+  Line 125:     assert r.status_code == 200
+    123:     c, _ = client
+    124:     r = c.get("/")
+    127: 
+  Line 126:     assert r.json()["service"]
+    128: 
+  Line 132:     assert r.status_code == 200
+    130:     c, _ = client
+    131:     r = c.get("/health")
+    134: 
+  Line 133:     assert r.json()["service"] == "healthy"
+    135: 
+  Line 144:     assert r.status_code == 200
+    142:         "model": "gpt-4o", "stream": True,
+    143:         "messages": [{"role": "user", "content": "hi"}]})
+    146:     events = parse_sse(r.text)
+  Line 145:     assert "text/event-stream" in r.headers["content-type"]
+  Line 147:     assert events[-1] == "[DONE]"
+    148:     deltas = [e for e in events if e != "[DONE]"]
+    149:     # 首块携带 role:assistant
+  Line 151:     assert first.get("role") == "assistant"
+    150:     first = deltas[0]["choices"][0]["delta"]
+    152:     # content 增量拼出全文
+    153:     content = "".join(e["choices"][0]["delta"].get("content", "")
+  Line 155:     assert "网页 AI" in content
+    154:                       for e in deltas if e.get("choices"))
+    156:     # 结束块 finish_reason=stop
+    157:     finish = [e for e in deltas if e["choices"][0].get("finish_reason")]
+  Line 158:     assert finish and finish[-1]["choices"][0]["finish_reason"] == "stop"
+    159: 
+    160: 
+  Line 168:     assert len(stub.calls) == 1
+    166:         "messages": [{"role": "user", "content": "读文件"}],
+    167:         "tools": ide_tools(), "tool_choice": "auto"})
+  Line 169:     assert stub.calls[0]["tools"] == ide_tools()
+    171: 
+  Line 170:     assert stub.calls[0]["tool_choice"] == "auto"
+    172: 
+  Line 186:     assert len(tc_events) >= 1
+    184:                  and e.get("choices")
+    185:                  and e["choices"][0]["delta"].get("tool_calls")]
+    187:     tc = tc_events[0]["choices"][0]["delta"]["tool_calls"][0]
+  Line 188:     assert tc["id"] == "call_test001"
+  Line 189:     assert tc["type"] == "function"
+  Line 190:     assert tc["function"]["name"] == "read_file"
+  Line 191:     assert isinstance(tc["function"]["arguments"], str)
+    193:     finish = [e for e in events if e != "[DONE]"
+  Line 192:     assert json.loads(tc["function"]["arguments"]) == {"filePath": "a.py"}
+    194:               and e.get("choices") and e["choices"][0].get("finish_reason")]
+  Line 195:     assert finish[-1]["choices"][0]["finish_reason"] == "tool_calls"
+    196: 
+    197: 
+  Line 206:     assert r.status_code == 200
+    204:         "model": "gpt-4o", "stream": False,
+    205:         "messages": [{"role": "user", "content": "hi"}]})
+    207:     data = r.json()
+  Line 208:     assert data["object"] == "chat.completion"
+  Line 209:     assert data["choices"][0]["message"]["content"] == "非流式回答。"
+    211: 
+  Line 210:     assert data["choices"][0]["finish_reason"] == "stop"
+    212: 
+  Line 221:     assert r.status_code == 200
+    219:         "messages": [{"role": "user", "content": "读 a.py"}],
+    220:         "tools": ide_tools()})
+    222:     msg = r.json()["choices"][0]["message"]
+  Line 223:     assert msg["role"] == "assistant"
+  Line 224:     assert len(msg["tool_calls"]) == 1
+  Line 225:     assert msg["tool_calls"][0]["function"]["name"] == "read_file"
+    227:         "filePath": "a.py"}
+  Line 226:     assert json.loads(msg["tool_calls"][0]["function"]["arguments"]) == {
+  Line 228:     assert r.json()["choices"][0]["finish_reason"] == "tool_calls"
+    229: 
+    230: 
+  Line 248:     assert r.status_code == 200
+    246:         "model": "gpt-4o", "stream": False,
+    247:         "messages": messages, "tools": ide_tools()})
+    249:     forwarded = stub.calls[0]["messages"]
+  Line 250:     assert len(forwarded) == 3
+  Line 251:     assert forwarded[1]["tool_calls"][0]["function"]["name"] == "read_file"
+  Line 252:     assert forwarded[2]["role"] == "tool"
+    254: 
+  Line 253:     assert forwarded[2]["content"] == "print('hi')"
+    255: 
+  Line 266:     assert stub.calls[0]["messages"] == messages
+    264:     c.post("/v1/chat/completions", json={
+    265:         "model": "gpt-4o", "stream": True, "messages": messages})
+    267: 
+    268: 
+  Line 281:     assert r.status_code == 200
+    279:         "top_p": 0.9, "frequency_penalty": 0.0,
+    280:         "presence_penalty": 0.0, "user": "ide-user"})
+    283: 
+  Line 282:     assert "[DONE]" in r.text
+    284: 
+  Line 288:     assert r.status_code == 422
+    286:     c, _ = client
+    287:     r = c.post("/v1/chat/completions", json={"model": "gpt-4o"})
+    289: 
+    290: 
+  Line 302:     assert events[-1] == "[DONE]"
+    300:         "stream_options": {"include_usage": True}})
+    301:     events = parse_sse(r.text)
+    303:     # 独立 usage 终块：choices=[] 且数值非零（finish 块自带的 0 usage 不算）
+    304:     usage_events = [e for e in events if e != "[DONE]"
+  Line 307:     assert len(usage_events) == 1
+    305:                     and e.get("usage") and not e.get("choices")
+    306:                     and e["usage"]["total_tokens"] > 0]
+  Line 308:     assert usage_events[0]["usage"]["prompt_tokens"] >= 1
+  Line 309:     assert usage_events[0]["usage"]["completion_tokens"] >= 1
+    311:         usage_events[0]["usage"]["prompt_tokens"]
+  Line 310:     assert usage_events[0]["usage"]["total_tokens"] == (
+    312:         + usage_events[0]["usage"]["completion_tokens"])
+  Line 323:     assert all(e == "[DONE]" or e.get("choices") for e in events)
+    321:     events = parse_sse(r.text)
+    322:     # 默认无独立 usage 终块（finish 块内嵌全 0 usage 除外）
+    324: 
+    325: 
+  Line 333:     assert usage["prompt_tokens"] >= 1
+    331:         "messages": [{"role": "user", "content": "hi"}]})
+    332:     usage = r.json()["usage"]
+  Line 334:     assert usage["completion_tokens"] == 2
+    336: 
+  Line 335:     assert usage["total_tokens"] == usage["prompt_tokens"] + 2
+    337: 
+  Line 362:     assert len(heartbeats) >= 2
+    360:         loop.close()
+    361:     heartbeats = [c for c in out if c.startswith(": keep-alive")]
+  Line 363:     assert any("late" in c for c in out)
+    365: 
+  Line 364:     assert out[-1] == "data: [DONE]\n\n"
+    366: 
+  Line 372:     assert f("chat.z.ai", domains) == "chat.z.ai"
+    370:     f = bc.match_site_domain
+    371:     domains = ["chat.deepseek.com", "chat.z.ai", "www.kimi.com"]
+  Line 373:     assert f("deepseek", domains) == "chat.deepseek.com"
+  Line 374:     assert f("z.ai", domains) == "chat.z.ai"
+  Line 375:     assert f("zai", domains) == "chat.z.ai"
+  Line 376:     assert f("kimi", domains) == "www.kimi.com"
+  Line 377:     assert f("web-browser", domains) is None
+  Line 378:     assert f("glm-4.6", domains) is None
+  Line 379:     assert f("", domains) is None
+  Line 380:     assert f(None, domains) is None
+    382: 
+  Line 381:     assert f("DEEPSEEK", domains) == "chat.deepseek.com"
+    383: 
+  Line 388:     assert f("poe/poe.com", domains) == "poe.com"
+    386:     f = bc.match_site_domain
+    387:     domains = ["poe.com", "chat.deepseek.com"]
+  Line 389:     assert f("poe.com/Assistant", domains) == "poe.com"
+    391:     assert f("gpt-5-mini", domains) is None
+  Line 390:     assert f("poe/GPT-5-Mini", domains) == "poe.com"
+    392: 
+
+(Results truncated: showing newest 100 of 646 matches. Consider using a more specific path or pattern.)
+
+[tool_result name=call_71d6c6af5c9d496e9fe046fc]
+[
+  {
+    "origin": "string",
+    "code": "invalid_format",
+    "format": "starts_with",
+    "prefix": "ses",
+    "path": [],
+    "message": "Invalid string: must start with \"ses\""
+  }
+]
+
+<retry-guard>
+<system-reminder>
+WARNING: A tool call has failed. Analyze the root cause (read the error output / stack trace) before deciding how to proceed.
+Never retry without changing anything: if the code, config, or environment is unchanged, a retry with the same inputs is blind.
+Before each retry, change at least one element: modify the code or config, adjust the command arguments, switch the run environment, or try a different approach.
+If the same tool call fails 2 times with identical inputs, stop repeating it.
+If a failure point persists after trying different inputs 3 times, stop retrying, explain the situation, and move to another path.
+
+For test failures, handle them by type instead of blindly rerunning:
+1. Compilation error / missing dependency → fix the environment or dependency first; rerunning without a fix is pointless.
+2. Assertion failure → read the assertion output to locate the specific test case and assertion line, then fix the code.
+3. Runtime crash (Traceback / stack trace) → read the stack to locate the crash point before touching anything.
+
+Two bash rules:
+1. Scoped search: find/ls -R/grep -r must always be restricted to a path (e.g. find /repo/src -name "*.ts"); never scan the whole disk.
+2. Long commands: if a command is expected to take longer than the default 120s, pass an explicit timeout (e.g. timeout:300000).
+</system-reminder>
+
+上一轮工具调用结果已在上方 [tool_result]。若任务完成，直接给最终回答；若需继续，重新输出 tool_call。
