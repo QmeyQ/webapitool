@@ -193,6 +193,38 @@ logging.getLogger().addHandler(web_handler)
 
 # ================= Lifespan =================
 
+def _cleanup_upload_dir(base_dir: Optional[Path] = None) -> tuple:
+    """启动时清掉上一轮超长提示词的落盘文件。
+
+    prepare_single_file / prepare_chunked_files 写完立刻在本次请求里注入，
+    重启后没人再读它们；不清就只会一直堆（实测 470 个 / 40MB）。只删本程序
+    自己写的 prompt_*，不碰用户放进 uploads 的其他文件。
+    """
+    up = base_dir if base_dir is not None else (
+        Path(os.path.dirname(os.path.abspath(__file__))) / "uploads")
+    if not up.is_dir():
+        return (0, 0)
+    removed = freed = 0
+    try:
+        targets = list(up.glob("prompt_*"))
+    except OSError as e:
+        logger.warning(f"[Upload] 读取 uploads 失败: {e}")
+        return (0, 0)
+    for f in targets:
+        try:
+            if not f.is_file():
+                continue
+            freed += f.stat().st_size
+            f.unlink()
+            removed += 1
+        except OSError:
+            continue  # 单个文件被占用不影响启动
+    if removed:
+        logger.info(f"[Upload] 启动清理 uploads：删除 {removed} 个落盘文件，"
+                    f"释放 {freed / 1048576:.1f} MB")
+    return (removed, freed)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("=" * 60)
@@ -202,6 +234,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"认证: {'启用' if AppConfig.AUTH_ENABLED else '禁用'}")
     logger.info(f"浏览器端口: {AppConfig.BROWSER_PORT}")
     logger.info("=" * 60)
+    _cleanup_upload_dir()
     
     # 浏览器健康检查（延迟初始化，不阻塞启动）
     try:

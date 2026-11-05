@@ -10,7 +10,9 @@ REM ===============================
 
 cd /d "%~dp0"
 if not exist "uploads" mkdir "uploads" >nul 2>&1
-echo     UPLOAD_DIR   : uploads  (超长提示词自动落盘为 txt)
+REM 启动时清掉上一轮超长提示词的落盘文件（prompt_*），uploads 不再无限堆积
+del /q /f "uploads\prompt_*.txt" >nul 2>&1
+echo     UPLOAD_DIR   : uploads  (超长提示词落盘为 prompt_*.txt，启动时清空)
 set "PROJECT_DIR=%cd%"
 
 del server.log
