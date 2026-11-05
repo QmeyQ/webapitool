@@ -167,5 +167,94 @@ def test_cancel_stops_cleanly():
     assert len(ex2.clicked) == 0
 
 
+class CancelAfterTwoFill(FakeExecutor):
+    """模拟客户端超时：发完第 2 片后被取消"""
+
+    def _execute_fill(self, selector, text, target_key=None, optional=False,
+                      msg_selector=""):
+        super()._execute_fill(selector, text, target_key, optional,
+                              msg_selector)
+        if len(self.filled) >= 2:
+            self.cancel = True
+
+
+def _driver(ex, store):
+    auto = BrowserCore.__new__(BrowserCore)
+    auto._should_stop_checker = lambda: ex.cancel
+    auto._chunk_progress = store
+    auto._fp_bind_release = lambda reason='': ex.released.append(reason)
+    auto._wait_generation_settled = (
+        lambda executor, timeout=90: setattr(
+            executor, 'settled', executor.settled + 1))
+    return auto
+
+
+def _send_resume(ex, prompt, store, fk='fk1', limit=12000):
+    list(BrowserCore._chunked_direct_send(
+        _driver(ex, store), ex,
+        {'prompt': prompt, 'session_fk': fk},
+        {'input_box': '#in', 'send_btn': '#send'}, chunk_limit=limit))
+
+
+def test_chunk_cap_rejects_absurd_size():
+    """超过单请求最多片数直接拒单：不开永远发不完的 96 片任务，
+    也不再去试必然被站点拒绝的 1MB 附件"""
+    from browser_core import TooLongError
+    prompt = 'Y' * (12000 * 40)      # 约 40 片 > 默认上限 30
+    ex = FakeExecutor(reject_over=99999)
+    with pytest.raises(TooLongError):
+        _send_resume(ex, prompt, {})
+    assert ex.filled == [], '拒单必须发生在任何填充之前'
+
+
+def test_resume_skips_delivered_chunks():
+    """上一轮被超时打断在第 2 片 -> 本次从第 3 片续，不重发 1、2 片"""
+    prompt = 'Z' * 60000             # 5 片
+    store = {}
+    ex1 = CancelAfterTwoFill(reject_over=99999)
+    _send_resume(ex1, prompt, store)
+    assert len(ex1.filled) == 2, '第一轮应发出 2 片后被取消'
+    assert store['fk1']['sent'] == 2, '断点应记在进度表里'
+
+    ex2 = FakeExecutor(reject_over=99999)
+    _send_resume(ex2, prompt, store)
+    assert len(ex2.filled) == 3, '第二轮只应补发剩下 3 片'
+    assert '[长消息分片 3/5]' in ex2.filled[0][:40], ex2.filled[0][:40]
+    assert 'fk1' not in store, '全部送达后断点必须清除'
+
+
+def test_stale_progress_does_not_skip():
+    """片数变了（换了一份 prompt）就不能按旧断点跳过，否则内容凭空缺失"""
+    import time as _t
+    prompt = 'W' * 60000
+    store = {'fk1': {'sent': 3, 'n': 9, 'ts': _t.time()}}
+    ex = FakeExecutor(reject_over=99999)
+    _send_resume(ex, prompt, store)
+    assert len(ex.filled) == 5, 'n 不匹配时必须从第 1 片发满'
+
+
+def test_progress_from_other_conversation_is_ignored():
+    """断点属于另一个对话时必须从头发：否则前几片根本不在当前会话里"""
+    prompt = 'V' * 60000
+    store = {'fk1': {'sent': 2, 'n': 5, 'ts': __import__('time').time(),
+                     'conv': 'https://chatgpt.com/c/OLD'}}
+    ex = FakeExecutor(reject_over=99999)
+    _send_resume(ex, prompt, store)
+    assert len(ex.filled) == 5, '对话不一致，5 片都要发'
+    assert '[长消息分片 1/5]' in ex.filled[0][:40]
+
+
+def test_invalidate_clears_all_delivered_state():
+    """会话重开：压缩基准、附件登记、分片进度都要作废（新对话里它们都不存在）"""
+    auto = BrowserCore.__new__(BrowserCore)
+    auto._fp_last_payload = {'fk1': 'x'}
+    auto._fp_attach = {'fk1': {'names': ['a.txt']}}
+    auto._chunk_progress = {'fk1': {'sent': 2, 'n': 5, 'ts': 0}}
+    auto._invalidate_session_baseline('fk1', '测试')
+    assert 'fk1' not in auto._fp_last_payload
+    assert 'fk1' not in auto._fp_attach
+    assert 'fk1' not in auto._chunk_progress
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

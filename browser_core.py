@@ -94,6 +94,9 @@ class BrowserConstants:
         'DEFAULT_PORT': 9222,
         'CONNECTION_TIMEOUT': 10,
         'EDITOR_READY_TIMEOUT': 30,
+        # 单个请求最多能切多少片：96 片要发十几分钟，客户端早超时重试，
+        # 每次重试又从头开始 → 永远停在第 1、2 片（2026-11-05 现场 1MB prompt）
+        'MAX_CHUNKED_CHUNKS': 30,
         'STEALTH_DELAY_MIN': 0.1,
         'STEALTH_DELAY_MAX': 0.3,
         'ACTION_DELAY_MIN': 0.15,
@@ -5911,6 +5914,24 @@ class BrowserCore:
                 except Exception as _e:
                     logger.debug(f"[MsgCondense] 跳过压缩: {_e}")
 
+            # 体量先按"最多能切几片"拦一道：这种 prompt 附件必被站点拒收，
+            # 回退分片又是永远发不完的 96 片任务，白烧浏览器与账号额度
+            try:
+                _cl_est = int(site_config.get('CHUNK_CHARS')
+                              or BrowserConstants.get('DIRECT_CHUNK_CHARS')
+                              or 24000)
+                _n_est = -(-len(raw_prompt) // max(1, _cl_est))
+                _max_chunks = int(BrowserConstants.get(
+                    'MAX_CHUNKED_CHUNKS') or 30)
+                if _n_est > _max_chunks:
+                    raise TooLongError(
+                        f"[LongPrompt] 消息过长：{len(raw_prompt)} 字符需切约"
+                        f" {_n_est} 片（每片 ≤{_cl_est} 字符），超过单请求最多"
+                        f" {_max_chunks} 片的上限。网页端承载不了这种体量："
+                        f"请缩减上下文，或让它走文件而非常驻历史")
+            except ZeroDivisionError:
+                pass
+
             actual_prompt = raw_prompt
             upload_strategy = LongPromptRouter.STRATEGY_DIRECT
             upload_payload = None
@@ -5976,6 +5997,7 @@ class BrowserCore:
                 "upload_btn_selector": selectors.get("upload_btn") or "",
                 "file_input_selector": selectors.get("file_input") or "",
                 "upload_done": False,
+                "session_fk": _fk,
             }
 
             workflow_has_explicit_upload = any(
@@ -5990,6 +6012,16 @@ class BrowserCore:
                 for step in workflow:
                     if self._should_stop_checker():
                         break
+
+                    # 断点续传时绝不点"新聊天"：前 i 片就发在那个会话里，
+                    # 重开对话等于把它们丢掉，下一轮又从第 1 片开始，
+                    # 于是永远停在 1、2 片（2026-11-05 现场）
+                    if (step.get("action") == "CLICK"
+                            and step.get("target") == "new_chat_btn"
+                            and self._has_chunk_progress(_fk)):
+                        logger.info(
+                            "[Chunk] 存在断点进度，跳过\"新聊天\"以续在同一会话")
+                        continue
 
                     if is_continuation:
                         if (step.get("action") == "CLICK"
@@ -6342,18 +6374,30 @@ class BrowserCore:
         return text, label
 
     def _invalidate_session_baseline(self, fk: str, why: str = ""):
-        """新起对话后必须作废压缩基准。
+        """会话重开后作废一切"已交付"知识：压缩基准、附件登记、分片进度。
 
-        占位符的语义是"省略内容与本会话上文／上一轮附件相同"，新对话里两者
-        都不存在；不作废就会把几万字历史压成几十个字发进空白对话，模型既
-        读不到上文也找不到那个附件，表现为"失忆"。"""
+        占位符与断点续传的语义都是"内容已在**这个**对话里"，新对话里上文、
+        附件、已发的片都不存在；不作废就会把几万字压成指向虚空的黑洞，
+        或从第 N 片起发而前 N-1 片根本不在会话里，表现为"失忆"或死循环。"""
         if not fk:
             return
-        for attr in ('_fp_last_payload', '_fp_attach'):
+        for attr in ('_fp_last_payload', '_fp_attach', '_chunk_progress'):
             m = getattr(self, attr, None)
             if isinstance(m, dict) and m.pop(fk, None) is not None:
-                logger.info(f"[MsgCondense] 基准作废 {fk}"
+                logger.info(f"[MsgCondense] 作废 {attr} 中 {fk} 的记录"
                             f"（{why or '会话已重开'}）")
+
+    def _has_chunk_progress(self, fk: str, n: Optional[int] = None) -> bool:
+        """该会话是否有未完成且仍有效的分片进度（30 分钟内、片数一致）。"""
+        if not fk:
+            return False
+        prog = ((getattr(self, '_chunk_progress', {}) or {}).get(fk) or {})
+        sent = int(prog.get("sent") or 0)
+        if sent <= 0:
+            return False
+        if time.time() - prog.get("ts", 0) > 1800:
+            return False
+        return n is None or prog.get("n") == n
 
     def _handle_context_limit(self, tab, selectors, fk: str) -> bool:
         """命中站点"上下文窗口已达上限"横幅时：作废基准 + 新起对话。
@@ -6513,6 +6557,15 @@ class BrowserCore:
             pass
         chunks = _split_prompt_chunks(prompt, limit)
         n = len(chunks)
+        max_chunks = int(BrowserConstants.get('MAX_CHUNKED_CHUNKS') or 30)
+        if n > max_chunks:
+            # 网页端承载不了这种体量：与其开一个永远发不完、还被客户端反复
+            # 重试的 96 片任务（现场停在第 1、2 片循环），不如明确拒单，
+            # 让上游看见"要缩减上下文/改用文件"
+            raise TooLongError(
+                f"[Chunk] 消息过长：{len(prompt)} 字符需切 {n} 片，超过单请求"
+                f"最多 {max_chunks} 片（每片 ≤{limit} 字符）的上限。"
+                "网页端无法承载这种体量，请缩减上下文或改用文件上传")
         input_sel = selectors.get("input_box", "")
         send_sel = selectors.get("send_btn", "")
         msg_sel = (selectors.get("message_wrapper")
@@ -6524,7 +6577,31 @@ class BrowserCore:
         executor._capture_pre_stream_count(
             selectors.get("result_container")
             or selectors.get("message_wrapper") or "")
+        # 断点续传：上一次请求可能被客户端超时打断在第 k 片，而这个会话里
+        # 前 k 片已经送达；从头再发会让同一批内容在对话里重复 k 遍，
+        # 且每次重试都被当成新会话 → 永远停在第 1、2 片（2026-11-05 实测）
+        if not hasattr(self, '_chunk_progress'):
+            self._chunk_progress = {}
+        fk = (context or {}).get("session_fk") or ""
+        try:
+            conv = executor.tab.url or ""
+        except Exception:
+            conv = ""
+        prog = (self._chunk_progress.get(fk) or {}) if fk else {}
         i = 0
+        if prog and prog.get("n") == n and self._has_chunk_progress(fk, n):
+            if prog.get("conv") == conv:
+                i = int(prog.get("sent") or 0)
+            else:
+                logger.warning(
+                    f"[Chunk] 断点属于另一个会话（{prog.get('conv','')[:40]}），"
+                    "忽略进度从头发送")
+                self._chunk_progress.pop(fk, None)
+        elif fk:
+            self._chunk_progress.pop(fk, None)
+        if i:
+            logger.info(f"[Chunk] 断点续传：本会话已送达 {i} 片，"
+                        f"从第 {i + 1}/{n} 片继续（已发内容不重发）")
         while i < len(chunks):
             ch = chunks[i]
             if self._should_stop_checker():
@@ -6554,6 +6631,10 @@ class BrowserCore:
                 if i < len(chunks):
                     time.sleep(1.5)
                     self._wait_generation_settled(executor, timeout=90)
+                if fk:
+                    self._chunk_progress[fk] = {"sent": i, "n": n,
+                                                "conv": conv,
+                                                "ts": time.time()}
                 continue
             # 采样必须在 CLICK 之前：小片上屏快，CLICK 后再采样时新 turn
             # 已出现、输入框已清空，pre=post 导致"消息数增加/输入框清空"
@@ -6630,12 +6711,19 @@ class BrowserCore:
                 continue
             logger.info(f"[Chunk] 分片 {i}/{n} 已发送"
                         f"（{len(head + ch)} 字符）")
+            if fk:
+                self._chunk_progress[fk] = {"sent": i, "n": n,
+                                            "conv": conv,
+                                            "ts": time.time()}
             if i < len(chunks):
                 # 等 AI 对本片的反应平息再发下一片（实测连发太快时
                 # chatgpt 三片全发完仍静默零产出；模拟真人分条发消息，
                 # AI 中间可能回"收到，请继续"，下一片头部会再次声明）
                 time.sleep(1.5)
                 self._wait_generation_settled(executor, timeout=90)
+        if fk:
+            # 全部送达：断点清掉，否则下一份不同的 prompt 会被"续"到半空
+            self._chunk_progress.pop(fk, None)
         logger.info(f"[Chunk] {len(chunks)} 片全部发送完毕，等待 AI 统一回复")
 
     def _wait_generation_settled(self, executor, timeout: float = 90):
