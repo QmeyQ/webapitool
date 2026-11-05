@@ -4,6 +4,20 @@
 
 ---
 
+> **本仓库是修改版 / This is a modified version**
+>
+> 依 GNU Affero General Public License v3.0 第 5 条 (a) 款声明：相对上游开源项目
+> **Universal Web-to-API**（AGPL-3.0），本副本**已被修改**。
+>
+> - 修改者：QmeyQ　最后修改日期：**2026-11-05**（修改自 2026-11-02 起持续进行）
+> - 逐文件修改清单与核对方式：[CHANGES.md](CHANGES.md)
+> - 本程序仍以 **AGPL-3.0** 授权发布，未增加第 7 条附加条款；上游 `LICENSE`
+>   原文与本 README 的免责声明、开源协议章节均逐字保留
+> - 若你运行本修改版并对外提供网络服务，请依第 13 条向用户提供对应源码，
+>   可直接指向本仓库 <https://github.com/QmeyQ/webapitool>
+
+---
+
 ## 简介
 
 Universal Web-to-API 是一个工具，能够将任意 AI 聊天网站（如 ChatGPT、Grok、DeepSeek、Claude 等）转换为标准的 OpenAI 兼容 API。

@@ -1,4 +1,6 @@
 @echo off
+rem 【修改声明】本文件修改自 Universal Web-to-API（AGPL-3.0）上游项目。
+rem 修改清单见 CHANGES.md，最后修改日期 2026-11-05。本程序整体仍以 AGPL-3.0 发布。
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 

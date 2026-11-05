@@ -1,6 +1,9 @@
 """
 config_engine.py - 配置引擎
 
+【修改声明】本文件修改自 Universal Web-to-API（AGPL-3.0）上游项目。
+修改清单见 CHANGES.md，最后修改日期 2026-11-05。本程序整体仍以 AGPL-3.0 发布。
+
 职责：
 - 站点配置加载/保存
 - AI 自动识别页面选择器

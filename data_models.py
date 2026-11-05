@@ -1,5 +1,8 @@
 """
 data_models.py - 数据模型定义
+
+【修改声明】本文件修改自 Universal Web-to-API（AGPL-3.0）上游项目。
+修改清单见 CHANGES.md，最后修改日期 2026-11-05。本程序整体仍以 AGPL-3.0 发布。
 """
 
 from typing import TypedDict, List, Optional, Literal, Dict, Any

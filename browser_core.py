@@ -1,6 +1,9 @@
 """
 browser_core.py - 浏览器自动化核心模块
 
+【修改声明】本文件修改自 Universal Web-to-API（AGPL-3.0）上游项目。
+修改清单见 CHANGES.md，最后修改日期 2026-11-05。本程序整体仍以 AGPL-3.0 发布。
+
 v5.3 关键修复（IDE 工具调用兼容）：
 - ToolSchemaConformer：工具名/参数名/类型对齐 IDE 声明的 tools schema，
   必填缺失补占位（IDE 报可见错误而非静默卡死）
