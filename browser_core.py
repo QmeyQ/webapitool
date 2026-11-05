@@ -5367,6 +5367,19 @@ class BrowserCore:
                 logger.info(f"[Instance] 实例 {inst.get('name')} "
                             f"(:{port}) 连接失败，跳过")
                 continue
+            # 切过去之前先看候选账号页面状态。2026-11-05 的整条链路挂死就是
+            # 这里没查：一次瞬时"发送按钮未启用 + 消息未上屏"造成零输出，
+            # 于是切到未登录的 acc2，又把唯一登录着的 acc3 窗口 quit 掉，
+            # 此后每个请求都停在登录墙上。
+            try:
+                _cand = probe_page_state(probe.latest_tab)
+            except Exception:
+                _cand = {"state": "unknown", "detail": ""}
+            if _cand.get("state") in ("need_login", "error_page"):
+                logger.warning(
+                    f"[Instance] 候选 {inst.get('name')} (: {port}) 不可用："
+                    f"{_cand.get('detail') or _cand['state']}，跳过")
+                continue
             logger.warning(
                 f"[Instance] 切换浏览器实例: {self.instance_name}:"
                 f"{self.port} -> {inst.get('name')}:{port}")
@@ -5382,15 +5395,15 @@ class BrowserCore:
                     _t.set.activate()
             except Exception:
                 pass
-            # 关闭原账号的浏览器窗口（原账号不可用才走到这里；
-            # quit 失败不影响切换结果，profile 数据保留）
+            # 不再 quit 原实例窗口。原窗口"不可用"往往只是这一次请求零输出
+            # （发送按钮未启用、消息未上屏、站点限流），账号与登录态都还好着；
+            # 一旦关掉，服务重启该 profile 时若上下文不对（服务以 LocalSystem
+            # 启动的 Chrome 解不开用户 Cookie）就再也回不来，只能整条链路挂死。
+            # 各账号本就是独立 profile 的独立窗口，留着不互相干扰，还能切回。
             if old_page is not None and old_port:
-                try:
-                    old_page.quit(timeout=5)
-                    logger.info(f"[Instance] 已关闭原实例窗口 :{old_port}")
-                except Exception as _e:
-                    logger.info(f"[Instance] 关闭原实例窗口 :{old_port}"
-                                f" 失败（可能早已退出）: {_e}")
+                logger.info(
+                    f"[Instance] 保留原实例窗口 :{old_port}"
+                    "（仅切走，不关闭，可切回）")
             return True
         logger.warning("[Instance] 无可用备用实例，保持当前实例")
         return False
