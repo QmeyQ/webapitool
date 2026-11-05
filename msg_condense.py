@@ -58,6 +58,24 @@ _MID_PLACEHOLDER = (
 )
 
 
+def _placeholders(ref_note: str = "") -> tuple:
+    """返回 (头部占位符, 块占位符)。
+
+    ref_note 非空时，被省略的内容不在会话正文里，而在上一轮上传的附件
+    （如 prompt_1793890600_f32ad0.txt）里：必须直接写明"去读那个附件"，
+    否则网页 AI 会以为上文消息里有正文，读到占位符就以为内容丢了。"""
+    if not ref_note:
+        return _HEAD_PLACEHOLDER, _MID_PLACEHOLDER
+    return (
+        "〔此处省略 {saved} 字符，内容与上一轮上传的附件 "
+        + ref_note + " 完全相同，请读取该附件作为上文。"
+        "以下为本条消息的新增内容：〕\n"
+    ), (
+        "〔此处省略 {saved} 字符，内容与附件 " + ref_note
+        + " 中的内容相同，请读取该附件。〕\n"
+    )
+
+
 def common_prefix_len(a: str, b: str) -> int:
     """返回两个字符串的公共前缀长度。
 
@@ -77,7 +95,8 @@ def _split_lines(text: str) -> list:
     return text.splitlines(keepends=True)
 
 
-def _condense_blocks(rest: str, prev: str, min_block: int) -> tuple:
+def _condense_blocks(rest: str, prev: str, min_block: int,
+                     mid_ph: str = _MID_PLACEHOLDER) -> tuple:
     """块级去重：rest 中与 prev 逐字相同的连续长行块替换为占位符。
 
     匹配是行对齐的精确相等比较（索引 + 贪心延伸），只会省略 prev 中
@@ -121,7 +140,7 @@ def _condense_blocks(rest: str, prev: str, min_block: int) -> tuple:
                 if best:
                     block_len = sum(len(x) for x in new_lines[i:i + best])
                     if block_len >= min_block:
-                        ph = _MID_PLACEHOLDER.format(saved=block_len)
+                        ph = mid_ph.format(saved=block_len)
                         out.append(ph)
                         saved += block_len - len(ph)
                         i += best
@@ -142,18 +161,22 @@ def condense(new_text: str, prev_text: str,
              min_prefix: int = MIN_PREFIX_LEN,
              min_savings: int = MIN_SAVINGS,
              protect_prefix: int = 0,
-             min_block: int = MIN_BLOCK_LEN) -> str:
+             min_block: int = MIN_BLOCK_LEN,
+             ref_note: str = "") -> str:
     """两级压缩 new_text，与 prev_text（上轮已发送全文）对比：
 
     1. 头部公共前缀（>= min_prefix）替换为头部占位符，只发增量尾部；
     2. 前缀之后与 prev 重复的长行块（>= min_block）各自替换为块占位符；
     3. protect_prefix：开头豁免压缩的字符数（协议区：工具表+续传指令），
        保证网页 AI 每轮都能在最新消息里看到完整工具清单。
+    4. ref_note：prev_text 是通过附件（而非正文消息）交付时，填附件文件名，
+       占位符改为"请读取该附件"，避免 AI 在会话正文里找不存在的内容。
 
     总节省 < min_savings 时返回原文。永不抛异常，任何异常回退全量发。"""
     try:
         if not new_text or not prev_text:
             return new_text
+        head_ph_tpl, mid_ph_tpl = _placeholders(ref_note)
         if not isinstance(protect_prefix, int) or protect_prefix < 0:
             protect_prefix = 0
         protect_prefix = min(protect_prefix, len(new_text))
@@ -175,7 +198,7 @@ def condense(new_text: str, prev_text: str,
             if 0 < cut < plen and cut >= min_prefix:
                 plen = cut
         if plen >= min_prefix:
-            head_ph = _HEAD_PLACEHOLDER.format(saved=plen)
+            head_ph = head_ph_tpl.format(saved=plen)
             pieces.append(head_ph)
             total_savings += plen - len(head_ph)
             body_start = plen
@@ -184,7 +207,7 @@ def condense(new_text: str, prev_text: str,
         # 重复（含头部前缀区覆盖的部分）都可安全省略——那些内容在网页
         # 会话的上轮消息里逐字可见。
         body, block_saved = _condense_blocks(
-            rest_new[body_start:], rest_prev, min_block)
+            rest_new[body_start:], rest_prev, min_block, mid_ph_tpl)
         pieces.append(body)
         total_savings += block_saved
 

@@ -5820,6 +5820,30 @@ class BrowserCore:
                     from msg_condense import condense
                     _prev = ((getattr(self, '_fp_last_payload', {}) or {})
                              .get(_fk, '')) if _fk else ''
+                    _ref_note = ""
+                    if _fk and not _prev:
+                        # 上一轮正文是作为附件交付的（内存里没留下全文基准）：
+                        # 去本地 uploads 把那个附件读回来比对
+                        _hist = ""
+                        try:
+                            _hist = "\n".join(
+                                str(m.get("content") or "")
+                                for m in (messages or [])[-12:]
+                                if isinstance(m, dict))
+                        except Exception:
+                            _hist = ""
+                        _prev, _ref_note = self._attachment_baseline(
+                            _fk, _hist[-200000:])
+                        if _prev:
+                            logger.info(
+                                f"[MsgCondense] 比对基准取自历史附件 "
+                                f"{_ref_note}（{len(_prev)} 字符）")
+                    elif _fk:
+                        # 基准在内存里，但上一轮内容是靠附件交付的：
+                        # 占位符同样要指向附件，否则 AI 在正文里找不到
+                        _ainfo = ((getattr(self, '_fp_attach', {}) or {})
+                                  .get(_fk) or {})
+                        _ref_note = _ainfo.get("label") or ""
                     if _prev:
                         # 协议区（工具表+深度思考指令+续传指令）豁免压缩：
                         # 网页 AI 只细读最新消息，工具表被压进占位符后它
@@ -5839,14 +5863,17 @@ class BrowserCore:
                             _protect += len(
                                 ToolRoundBuilder.TOOL_CONTINUATION_HINT) + 2
                         _c = condense(raw_prompt, _prev,
-                                      protect_prefix=_protect)
+                                      protect_prefix=_protect,
+                                      ref_note=_ref_note)
                         if _c != raw_prompt:
                             raw_prompt = _c
                             _condense_applied = True
                             logger.info(
                                 f"[MsgCondense] 会话 {_fp0} 压缩生效: "
                                 f"{len(_condense_original)} → {len(_c)} 字符"
-                                f"（协议区 {_protect} 字符豁免，块级去重）")
+                                f"（协议区 {_protect} 字符豁免，块级去重"
+                                + (f"，省略内容在附件 {_ref_note} 里"
+                                   if _ref_note else "") + "）")
                 except Exception as _e:
                     logger.debug(f"[MsgCondense] 跳过压缩: {_e}")
 
@@ -6154,14 +6181,22 @@ class BrowserCore:
                 # 发送确认后记录本会话本轮交付内容（msg_condense 下一轮
                 # 的压缩比对基准）。压缩生效时记录未压缩原文——保证前缀
                 # 链不断（下一轮仍能对全文取公共前缀）；未压缩时记录实际
-                # 发送文本（分片路径=完整原文；上传路径=输入框短模板，
-                # 全文在附件里、会话消息中不可见，记全文会导致下轮错误
-                # 压缩丢信息）。
+                # 发送文本。附件轮次同样记全文：正文虽写进 uploads\prompt_*.txt
+                # 而没进会话消息，但内容已经交付过（模型读的是文件），
+                # 只记那句"请阅读文件 xxx"的短模板会让下一轮无从比对，
+                # 把已交付的几万字整份重发（2026-11-05 现场：续聊 96482 字符
+                # 仍走 file 策略）。附件文件名另存一份，内存基准丢了还能
+                # 从本地 uploads 读回来比对。
                 if _send_confirmed and _fk:
                     try:
                         if not hasattr(self, '_fp_last_payload'):
                             self._fp_last_payload = {}
-                        if _condense_applied:
+                        _via_attach = bool(
+                            context.get("upload_done")
+                            and upload_strategy in (
+                                LongPromptRouter.STRATEGY_FILE,
+                                LongPromptRouter.STRATEGY_CHUNKED))
+                        if _condense_applied or _via_attach:
                             _rec = _condense_original
                         elif context.get("chunked_sent"):
                             # 分片路径：_last_send_payload 是单片（供
@@ -6170,6 +6205,29 @@ class BrowserCore:
                         else:
                             _rec = (getattr(executor, '_last_send_payload', '')
                                     or context.get("prompt") or "")
+                        if _via_attach:
+                            try:
+                                if not hasattr(self, '_fp_attach'):
+                                    self._fp_attach = {}
+                                if (upload_strategy
+                                        == LongPromptRouter.STRATEGY_FILE):
+                                    _names = [str((upload_payload or {})
+                                                  .get("filename") or "")]
+                                else:
+                                    _names = [n for _p, n in
+                                              ((upload_payload or {})
+                                               .get("files") or [])]
+                                _names = [n for n in _names if n]
+                                if _names:
+                                    self._fp_attach[_fk] = {
+                                        "names": _names[:5],
+                                        "label": "、".join(_names[-2:])}
+                                    while len(self._fp_attach) > 64:
+                                        self._fp_attach.pop(
+                                            next(iter(self._fp_attach)))
+                            except Exception as _ae:
+                                logger.debug(
+                                    f"[MsgCondense] 附件基准登记失败: {_ae}")
                         if _rec:
                             # 先弹出再插入：活跃会话刷新 LRU 顺序
                             self._fp_last_payload.pop(_fk, None)
@@ -6189,6 +6247,63 @@ class BrowserCore:
 
         finally:
             SSEFormatter.end_response()
+
+    # 历史附件基准最多读回的字符数（防把超大文件整份拉进比对）
+    _ATTACH_BASELINE_MAX = 4_000_000
+    # 上一轮附件文件名（短模板里会写"请阅读文件 prompt_xxx.txt"）
+    _ATTACH_NAME_RE = r"prompt_\d+_[0-9a-f]{6}(?:_part\d{2}of\d{2})?\.txt"
+
+    def _read_upload_files(self, names: list) -> str:
+        """按文件名从 uploads/ 读回历史附件原文（分片按序拼接复原）。
+        一个都读不到时返回 ""，调用方退回全量发送。"""
+        up_dir = (Path(__file__).resolve().parent / "uploads")
+        parts, total = [], 0
+        for name in names:
+            try:
+                fp = up_dir / name
+                if not fp.is_file():
+                    continue
+                data = fp.read_text(encoding="utf-8", errors="ignore")
+            except OSError as e:
+                logger.debug(f"[MsgCondense] 历史附件读取失败 {name}: {e}")
+                continue
+            parts.append(data)
+            total += len(data)
+            if total >= self._ATTACH_BASELINE_MAX:
+                break
+        return "".join(parts)
+
+    def _attachment_baseline(self, fk: str, history_text: str) -> tuple:
+        """把"上一轮已经作为附件交付过"的原文弄回来当压缩基准。
+
+        附件轮次的正文不在会话消息里，输入框只有"请阅读文件 xxx.txt"一句
+        短模板；但内容确实已经交给过模型（它读的是文件）。若因此不比对，
+        下一轮就无从压缩，几万字已交付内容被整份重发（2026-11-05 现场：
+        续聊 prompt 96482 字符仍走 file 策略）。
+        先查本会话记录的附件（内存），没有再从对话历史里认文件名；
+        文件已被 uploads 清理或换机器时读不到，退回全量发送。
+        返回 (基准文本, 附件说明)。"""
+        info = (getattr(self, '_fp_attach', {}) or {}).get(fk) or {}
+        names = list(info.get("names") or [])
+        label = info.get("label") or ""
+        if not names:
+            # 对话历史里找：短模板/分片模板都写了文件名，按出现顺序取最近几个
+            try:
+                found = re.findall(self._ATTACH_NAME_RE, history_text or "")
+            except Exception:
+                found = []
+            names = list(dict.fromkeys(found))[-5:]
+            if names:
+                label = "、".join(names[-2:])
+        if not names:
+            return "", ""
+        text = self._read_upload_files(names)
+        if not text:
+            logger.info(
+                f"[MsgCondense] 历史附件已不在本地 uploads（已清理或换机），"
+                f"本轮按附件比对失败，全量发送: {names}")
+            return "", label
+        return text, label
 
     def _do_upload(self, executor, context, upload_cfg, selectors=None,
                    session_fk: str = ""):

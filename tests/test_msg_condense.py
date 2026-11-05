@@ -249,6 +249,77 @@ class TestProtectPrefix:
         assert len(out) < len(new) - 1500, "协议区之后的大块重复应压缩"
 
 
+class TestAttachmentBaseline:
+    """附件轮次也要参与压缩比对：上一轮写进 uploads 的附件原文就是基准。"""
+
+    NAME = "prompt_1793900000_dead01.txt"
+
+    def _write_upload(self, text: str) -> Path:
+        up = Path(__file__).resolve().parent.parent / "uploads"
+        up.mkdir(exist_ok=True)
+        f = up / self.NAME
+        f.write_text(text, encoding="utf-8")
+        return f
+
+    def test_from_history_attachment_name(self):
+        """对话历史里认得出附件名 → 读本地文件复原基准"""
+        from browser_core import BrowserCore
+        text = _rule_block(3000)
+        f = self._write_upload(text)
+        try:
+            bc = object.__new__(BrowserCore)
+            bc._fp_attach = {}
+            got, label = bc._attachment_baseline(
+                "fk1", f"请完整阅读我上传的文件 {self.NAME} 后完成任务")
+            assert got == text, "基准应等于附件原文"
+            assert self.NAME in label
+        finally:
+            f.unlink(missing_ok=True)
+
+    def test_recorded_names_take_priority(self):
+        """本会话已登记附件名时不必再从历史里找"""
+        from browser_core import BrowserCore
+        text = "已交付的长内容\n" * 400
+        f = self._write_upload(text)
+        try:
+            bc = object.__new__(BrowserCore)
+            bc._fp_attach = {"fk2": {"names": [self.NAME],
+                                     "label": self.NAME}}
+            got, label = bc._attachment_baseline("fk2", "")
+            assert got == text and label == self.NAME
+        finally:
+            f.unlink(missing_ok=True)
+
+    def test_missing_file_degrades_to_full_send(self):
+        """uploads 已被启动清理/换机器 → 读不到就不比对，全量发"""
+        from browser_core import BrowserCore
+        bc = object.__new__(BrowserCore)
+        bc._fp_attach = {}
+        got, _label = bc._attachment_baseline(
+            "fk3", f"上一轮的附件 {self.NAME}")
+        assert got == ""
+
+
+class TestCondenseRefNote:
+    """基准来自附件时，占位符必须让网页 AI 去读那个附件，而不是找正文上文"""
+
+    def test_placeholder_points_to_attachment(self):
+        prev = _rule_block(4000)
+        new = prev + "\n本轮新增指令：继续执行。\n"
+        name = "prompt_1_aaaaaa.txt"
+        out = condense(new, prev, ref_note=name)
+        assert name in out, "占位符要写明附件文件名"
+        assert "附件" in out
+        assert out.endswith("本轮新增指令：继续执行。\n")
+
+    def test_default_wording_unchanged(self):
+        prev = _rule_block(4000)
+        new = prev + "\n新增\n"
+        out = condense(new, prev)
+        assert "本会话此前消息" in out
+        assert "附件" not in out, "不带 ref_note 时文案保持原样"
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
