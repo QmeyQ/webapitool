@@ -320,6 +320,83 @@ class TestCondenseRefNote:
         assert "附件" not in out, "不带 ref_note 时文案保持原样"
 
 
+class TestContextLimitHandling:
+    """站点报"上下文窗口已达上限"：新起对话 + 作废压缩基准（本轮全量重发）"""
+
+    def _bc(self):
+        from browser_core import BrowserCore
+        bc = object.__new__(BrowserCore)
+        bc._fp_last_payload = {"fk": "已交付的长文本" * 200}
+        bc._fp_attach = {"fk": {"names": ["prompt_1_aaaaaa.txt"],
+                                "label": "prompt_1_aaaaaa.txt"}}
+        bc._conv_upload_counts = {"chatgpt.com:xx": 4}
+        return bc
+
+    def test_probe_passes_flag_through(self):
+        from browser_core import probe_page_state
+
+        class T:
+            def run_js(self, script, *a, **k):
+                return {"url": "https://chatgpt.com/c/x", "err_code": "",
+                        "rich_editors": 1, "plain_textareas": 0,
+                        "login_ctas": 0, "context_full": 1,
+                        "limit_text": "上下文窗口已达上限 开启新聊天"}
+        st = probe_page_state(T())
+        assert st["state"] == "ok", "上限页面仍可输入，state 不该变"
+        assert st.get("context_full") is True
+        assert "已达上限" in st.get("limit_text", "")
+
+    def test_handler_invalidates_and_clicks(self):
+        bc = self._bc()
+        clicks = []
+
+        class T:
+            def run_js(self, script, *a, **k):
+                if "rich_editors" in script:      # 状态探测脚本
+                    return {"url": "https://chatgpt.com/c/x", "err_code": "",
+                            "rich_editors": 1, "plain_textareas": 0,
+                            "login_ctas": 0, "context_full": 1,
+                            "limit_text": "上下文窗口已达上限"}
+                clicks.append(script)            # 点击新聊天的脚本
+                return "clicked"
+
+        ok = bc._handle_context_limit(
+            T(), {"new_chat_btn": 'css:button[aria-label="新聊天"]'}, "fk")
+        assert ok is True
+        assert "fk" not in bc._fp_last_payload, "压缩基准必须作废"
+        assert "fk" not in bc._fp_attach, "附件登记也要作废"
+        assert bc._conv_upload_counts == {}, "新会话附件计数归零"
+        assert clicks, "必须真的点击新聊天"
+
+    def test_no_false_positive_without_banner(self):
+        """没命中上限时绝不清基准——侧栏常驻"新聊天"按钮不是上限信号"""
+        bc = self._bc()
+
+        class T:
+            def run_js(self, script, *a, **k):
+                return {"url": "https://chatgpt.com/", "err_code": "",
+                        "rich_editors": 1, "plain_textareas": 0,
+                        "login_ctas": 0, "context_full": 0, "limit_text": ""}
+
+        assert bc._handle_context_limit(T(), {"new_chat_btn": "css:button"},
+                                        "fk") is False
+        assert "fk" in bc._fp_last_payload
+
+    def test_missing_selector_still_disables_condense(self):
+        """站点没配 new_chat_btn：点不了新聊天，但仍要停用压缩"""
+        bc = self._bc()
+
+        class T:
+            def run_js(self, script, *a, **k):
+                return {"url": "https://chatgpt.com/", "err_code": "",
+                        "rich_editors": 1, "plain_textareas": 0,
+                        "login_ctas": 0, "context_full": 1,
+                        "limit_text": "上下文窗口已达上限"}
+
+        assert bc._handle_context_limit(T(), {}, "fk") is True
+        assert "fk" not in bc._fp_last_payload
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

@@ -243,7 +243,7 @@ def _resolve_profile_dir(raw: str) -> str:
 
 
 # 站点页面是否还处在"能输入"的状态：错误页 / 登录墙 / 无可见输入控件
-_PAGE_STATE_JS = """
+_PAGE_STATE_JS = r"""
 var out = {url: location.href || '', err_code: '',
            rich_editors: 0, plain_textareas: 0, login_ctas: 0, btn_texts: ''};
 var bt = (document.body && document.body.innerText) || '';
@@ -273,6 +273,30 @@ for (var n = 0; n < btns.length; n++) {
   if (/^(log in|log_in|sign in|sign up|register|get started|continue with|登录|注册|开始使用|立即登录|免费注册)/i.test(t)) { hits.push(t.slice(0, 12)); }
 }
 if (hits.length) { out.login_ctas = hits.length; out.btn_texts = hits.slice(0, 3).join('|'); }
+
+// 站点自身的"上下文窗口已达上限"横幅：必须同时命中「新聊天类按钮」和
+// 该按钮近邻容器里的上限文案。只看文案会把我们自己的 prompt（正文里常出现
+// "上下文"）和侧栏常驻的"新聊天"按钮误判成上限，只看按钮更不行。
+out.context_full = 0;
+out.limit_text = '';
+function nearLimitText(e) {
+  var n = e;
+  for (var d = 0; d < 6 && n; d++) {
+    var t = (n.innerText || '').trim();
+    if (t.length > 0 && t.length < 400 &&
+        /已达上限|上下文窗口.*(上限|已满)|context (window|limit).*reach|reached.*context limit|conversation.*too long/i.test(t)) {
+      return t.replace(/\s+/g, ' ').slice(0, 140);
+    }
+    n = n.parentElement;
+  }
+  return '';
+}
+for (var q = 0; q < btns.length; q++) {
+  var lab = (btns[q].innerText || btns[q].getAttribute('aria-label') || '').trim();
+  if (!/^(新聊天|开启新聊天|start a new chat|new chat|开启新对话)$/i.test(lab)) continue;
+  var hit = nearLimitText(btns[q]);
+  if (hit) { out.context_full = 1; out.limit_text = hit; break; }
+}
 return out;
 """
 
@@ -315,7 +339,13 @@ def probe_page_state(tab) -> dict:
     if not (d.get("rich_editors") or d.get("plain_textareas")):
         return {"state": "no_editor", "raw": d,
                 "detail": "页面上没有可见输入控件"}
-    return {"state": "ok", "raw": d, "detail": ""}
+    st = {"state": "ok", "raw": d, "detail": ""}
+    # 上下文上限不改 state（页面照样可输入可发送，站点只是静默丢上文），
+    # 只带一个标记：调用方据此新起对话并停用压缩
+    if d.get("context_full"):
+        st["context_full"] = True
+        st["limit_text"] = str(d.get("limit_text") or "")[:140]
+    return st
 
 
 def _drission_find(tab, selector: str, timeout: int = 1):
@@ -5815,6 +5845,10 @@ class BrowserCore:
                 _fk = f"{domain}:{_fp0}" if _fp0 else ""
             except Exception:
                 _fk = ""
+            # 站点报"上下文窗口已达上限"→ 重开对话，并把本轮当新会话：
+            # 压缩基准已被作废，跳过压缩才能把完整历史一次性发进新对话
+            if self._handle_context_limit(tab, selectors, _fk):
+                session_new = True
             if is_continuation and not session_new:
                 try:
                     from msg_condense import condense
@@ -6161,10 +6195,12 @@ class BrowserCore:
                             yield self.formatter.pack_error(f"执行中断: {str(e)}")
                             break
 
-                    # 工作流自身点了"新对话"：附件计数归零（新会话没有历史附件）
+                    # 工作流自身点了"新对话"：附件计数归零（新会话没有历史附件），
+                    # 压缩基准同时作废——占位符指向的上文与附件都不在新对话里
                     if action == "CLICK" and target_key == "new_chat_btn":
                         if getattr(self, "_conv_upload_counts", None):
                             self._conv_upload_counts.clear()
+                        self._invalidate_session_baseline(_fk, "工作流点击新聊天")
 
                     if (action == "CLICK" and target_key == "send_btn"
                             and pre_send_state is not None):
@@ -6305,6 +6341,59 @@ class BrowserCore:
             return "", label
         return text, label
 
+    def _invalidate_session_baseline(self, fk: str, why: str = ""):
+        """新起对话后必须作废压缩基准。
+
+        占位符的语义是"省略内容与本会话上文／上一轮附件相同"，新对话里两者
+        都不存在；不作废就会把几万字历史压成几十个字发进空白对话，模型既
+        读不到上文也找不到那个附件，表现为"失忆"。"""
+        if not fk:
+            return
+        for attr in ('_fp_last_payload', '_fp_attach'):
+            m = getattr(self, attr, None)
+            if isinstance(m, dict) and m.pop(fk, None) is not None:
+                logger.info(f"[MsgCondense] 基准作废 {fk}"
+                            f"（{why or '会话已重开'}）")
+
+    def _handle_context_limit(self, tab, selectors, fk: str) -> bool:
+        """命中站点"上下文窗口已达上限"横幅时：作废基准 + 新起对话。
+
+        这种状态下站点并不拒绝输入——它只是静默丢弃更早的上下文，所以发送
+        会"成功"，而模型读不到我们压缩省略的那部分。唯一安全的处置是重开
+        对话并让本轮全量重发（IDE 每轮本就重放完整历史，新对话里自洽）。
+        命中判定必须"新聊天类按钮 + 近邻容器上限文案"同时成立，否则会把
+        侧栏常驻的"新聊天"按钮或我们自己 prompt 里的"上下文"字样误判成上限。
+        """
+        try:
+            st = probe_page_state(tab)
+        except Exception:
+            return False
+        if not st.get("context_full"):
+            return False
+        logger.warning(
+            f"[CtxLimit] 站点提示上下文已达上限 → 新起对话、本轮全量重发："
+            f"{str(st.get('limit_text') or '')[:90]}")
+        self._invalidate_session_baseline(fk, "上下文已达上限，新起对话")
+        if getattr(self, "_conv_upload_counts", None):
+            self._conv_upload_counts.clear()
+        sel = _plain_css((selectors or {}).get("new_chat_btn", "") or "")
+        if not sel:
+            logger.warning("[CtxLimit] 站点未配置 new_chat_btn，无法自动重开对话，"
+                           "本轮仍停用压缩")
+            return True
+        try:
+            r = tab.run_js(
+                "var els=document.querySelectorAll(%s);"
+                "for(var i=0;i<els.length;i++){var e=els[i];"
+                "if(e.offsetWidth||e.offsetHeight||e.getClientRects().length)"
+                "{e.click();return 'clicked';}}"
+                "return 'no-visible';" % json.dumps(sel))
+            logger.info(f"[CtxLimit] 点击新聊天: {r}")
+            time.sleep(1.5)
+        except Exception as e:
+            logger.warning(f"[CtxLimit] 点击新聊天失败: {e}")
+        return True
+
     def _do_upload(self, executor, context, upload_cfg, selectors=None,
                    session_fk: str = ""):
         """执行上传（单文件/分块），带单会话附件上限保护。
@@ -6347,6 +6436,9 @@ class BrowserCore:
                         pass
                     counts.pop(count_key, None)
                     time.sleep(1.0)
+                    # 新对话里没有上文也没有旧附件，压缩基准必须作废
+                    self._invalidate_session_baseline(
+                        session_fk, "附件超限，新起对话")
                     logger.info(
                         "[AttachLimit] 已新起对话，该会话附件计数归零")
                 except Exception as e:
