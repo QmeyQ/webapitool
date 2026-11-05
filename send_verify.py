@@ -19,19 +19,51 @@ import json
 # 本模块不做 DrissionPage 语法解析（避免循环导入）
 
 
+# 采样取"可见编辑器"的 JS 片段：站点 UI 变体常并存隐藏的旧输入框
+# 实例（2026-11-05 chatgpt 首页实锤：2 个 ProseMirror，第 0 个隐藏
+# 空文本，真实编辑器在第 1 个）。querySelector 撞上隐藏实例 →
+# input_len 恒 0 → 清空判据永不成立 → "写入了检查为写入失败"。
+# 可见优先 → 聚焦兜底 → 首个兜底。
+_VISIBLE_INP_JS = (
+    "(function(){try{"
+    "const els=document.querySelectorAll(%s);"
+    "for(const e of els){"
+    "if(e.offsetWidth||e.offsetHeight)return e;}"
+    "for(const e of els){if(e===document.activeElement)return e;}"
+    "return els[0]||null;"
+    "}catch(e){return null}})()")
+
+
 def capture_send_state_js(input_selector: str, msg_selector: str) -> str:
     """发送前/后状态采样 JS：输入框长度 + 消息节点数 + 轮数。
 
-    返回 JSON 字符串（i=input_len, m=msg_count, t=turn_count）。"""
+    返回 JSON 字符串（i=input_len, m=msg_count, t=turn_count,
+    a=article 数, b=排除输入框后的全页可见文本长度）。
+
+    a/b 是通用兜底信号：站点改版/混淆 class 轮换导致
+    msg_selector/turn 选择器失配（m/t 恒 -1 或不增）时，
+    article 增长与全页文本增长仍能确认消息真的上屏——
+    2026-11-05 实测 chatgpt 页面 article 结构随 UI 变体消失，
+    单一站点专属选择器"有时正确有时不正确"。"""
     return (
-        "const inp = document.querySelector(%s);"
+        "const inp = " + _VISIBLE_INP_JS % json.dumps(
+            input_selector or '___none___') + ";"
         "const t = inp ? ((inp.value != null) ? inp.value : "
         "(inp.textContent || '')) : '';"
+        "let bl = -1;"
+        "try {"
+        "  const clone = document.body.cloneNode(true);"
+        "  const ed = clone.querySelector(%s);"
+        "  if (ed) ed.remove();"
+        "  bl = ((clone.innerText || '').replace(/\\s+/g, '')).length;"
+        "} catch (e) {}"
         "return JSON.stringify({"
         "i: t.length,"
         "m: document.querySelectorAll(%s).length,"
-        "t: document.querySelectorAll('[data-turn-key]').length});"
-        % (json.dumps(input_selector),
+        "t: document.querySelectorAll('[data-turn-key]').length,"
+        "a: document.querySelectorAll('article').length,"
+        "b: bl});"
+        % (json.dumps(input_selector or '___none___'),
            json.dumps(msg_selector or 'div[id^="message-"]')))
 
 
@@ -43,18 +75,22 @@ def poll_signal_js(input_selector: str) -> str:
     - 'maybe_sent'       输入框已清空，需上层对比计数确认
     """
     return (
-        "const inp = document.querySelector(%s);"
+        "const inp = " + _VISIBLE_INP_JS % json.dumps(
+            input_selector) + ";"
         "const t = inp ? ((inp.value != null) ? inp.value : "
         "(inp.textContent || '')) : '';"
         "if (t.trim().length > 0) return 'input_not_empty';"
         "if (document.querySelector('[data-testid=\"stop-button\"],"
-        "[data-testid=\"stop\"],[data-beam][data-active]')) "
+        "[data-testid=\"stop\"]')) return 'generating';"
+        "if (document.querySelector('[data-testid*=\"stop\" i]')) "
         "return 'generating';"
-        "if (document.querySelector('button[aria-label*=\"停止\"],"
-        "button[aria-label*=\"Stop\"],button[aria-label*=\"stop\"]')) "
+        "if (document.querySelector('[data-beam][data-active]')) "
         "return 'generating';"
-        "return 'maybe_sent';"
-        % json.dumps(input_selector))
+        "if (document.querySelector('button[aria-label*=\"停止\"]')) "
+        "return 'generating';"
+        "if (document.querySelector('button[aria-label*=\"stop\" i]')) "
+        "return 'generating';"
+        "return 'maybe_sent';")
 
 
 def sent_confirmed(pre: dict, now: dict) -> bool:
@@ -63,15 +99,25 @@ def sent_confirmed(pre: dict, now: dict) -> bool:
     任一成立即成功：
     - 会话轮数增加（金标准）
     - 消息节点数增加
+    - article 数增加（通用兜底：站点专属消息选择器失配时）
     - 输入框从非空变空（基准必须取 fill 后值）
-    """
-    for k in ("turn_count", "msg_count"):
+    - 全页文本（排除输入框）显著增长——消息上屏的最终兜底，
+      不依赖任何站点专属 UI。阈值 = max(60, min(草稿长一半, 1500))：
+      toast/横幅等页面噪声（"出了点问题"/"正在加载"类提示均 <60
+      字符）够不到；草稿大时上限 1500 保证流式回复前消息体即可达标。"""
+    for k in ("turn_count", "msg_count", "article_count"):
         a, b = pre.get(k, -1), now.get(k, -1)
         if a >= 0 and b > a:
             return True
     a, b = pre.get("input_len", -1), now.get("input_len", -1)
     if a > 0 and b == 0:
         return True
+    pa, pb = pre.get("body_len", -1), now.get("body_len", -1)
+    if pa >= 0 and pb >= 0:
+        grown = pb - pa
+        draft = max(pre.get("input_len", 0), 0)
+        if grown >= max(60, min(draft // 2, 1500)):
+            return True
     return False
 
 

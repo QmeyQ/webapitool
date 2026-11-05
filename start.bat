@@ -11,6 +11,8 @@ if not exist "uploads" mkdir "uploads" >nul 2>&1
 echo     UPLOAD_DIR   : uploads  (超长提示词自动落盘为 txt)
 set "PROJECT_DIR=%cd%"
 
+del server.log
+
 echo.
 echo ========================================
 echo   Universal Web-to-API 启动脚本

@@ -50,8 +50,14 @@
   },
   "chatgpt.com": {
     "selectors": {
-      "input_box": "css:div.ProseMirror[contenteditable=\"true\"]",
-      "send_btn": "[data-testid=\"send-button\"]",
+      "input_box": [
+        "css:div.ProseMirror[contenteditable=\"true\"]",
+        "css:#prompt-textarea"
+      ],
+      "send_btn": [
+        "[data-testid=\"send-button\"]",
+        "css:button[aria-label*=\"Send\" i]"
+      ],
       "result_container": "css:div[class*=\"DilRenderer\"]",
       "new_chat_btn": "css:button[aria-label=\"新聊天\"]",
       "message_wrapper": "[data-turn-key]",

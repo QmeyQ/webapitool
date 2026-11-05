@@ -3322,27 +3322,39 @@ class WorkflowExecutor:
 
         金标准是"输入区容器内、编辑器文本之外"出现文件名（或去扩展名
         前缀）——输入框里的指令文本本身就含文件名，必须排除编辑器节点。
+        2026-11-05 附件+分片共存复现实锤：站点 UI 变体并存多个
+        ProseMirror（第 0 个是隐藏空实例），querySelector 撞隐藏实例
+        → 永远找不到可见编辑器容器里的 chip → 假阴性 → 误回退分片。
+        改为遍历所有编辑器实例只认可见的；且不再提前 return——可见
+        容器全部未命中时继续走 input.files/body 兜底。
         无 ProseMirror 的站点（poe/z.ai）退而用 file input.files>0 或
         全文文本命中判定（这些站点 input 注入路径真实有效）。"""
         stem = re.sub(r'\.[^.]+$', '', file_name)
-        js = ("(function(){"
-              "var name=" + json.dumps(file_name) + ";"
+        # 注意：DrissionPage run_js 会把脚本包进 function(){...} 执行，
+        # 必须用裸 return（2026-11-05 实锤：IIFE 包裹 (function(){...})()
+        # 的 return 被内层函数吃掉，外层无 return 恒返回 None →
+        # 本方法恒 False → 上传验证从未真正生效 → 附件假阴性回退分片）。
+        # 同理 _CHIP_REMOVE_JS/_LOGIN_MODAL_JS 均为裸 return 写法。
+        js = ("var name=" + json.dumps(file_name) + ";"
               "var stem=" + json.dumps(stem) + ";"
-              "var region=document.querySelector("
+              "var eds=document.querySelectorAll("
               "'div.ProseMirror[contenteditable=\"true\"]');"
-              "if(region){var box=region.closest('form')||region.parentElement;"
-              "if(box){var clone=box.cloneNode(true);"
+              "for(var k=0;k<eds.length;k++){"
+              "var e=eds[k];"
+              "if(!(e.offsetWidth||e.offsetHeight))continue;"
+              "var box=e.closest('form')||e.parentElement;"
+              "if(!box)continue;"
+              "var clone=box.cloneNode(true);"
               "var pm=clone.querySelector('div.ProseMirror');"
               "if(pm)pm.remove();"
               "var clean=(clone.innerText||'');"
-              "if(clean.indexOf(name)>=0||clean.indexOf(stem)>=0)return 'chip';}"
-              "return 'none';}"
+              "if(clean.indexOf(name)>=0||clean.indexOf(stem)>=0)"
+              "return 'chip';}"
               "var inputs=document.querySelectorAll('input[type=file]');"
               "for(var i=0;i<inputs.length;i++){"
               "if(inputs[i].files&&inputs[i].files.length>0)return 'input';}"
               "var t=document.body.innerText||'';"
-              "return (t.indexOf(name)>=0||t.indexOf(stem)>=0)?'body':'none';"
-              "})()")
+              "return (t.indexOf(name)>=0||t.indexOf(stem)>=0)?'body':'none';")
         try:
             return (self.tab.run_js(js) or 'none') != 'none'
         except Exception:
@@ -3447,7 +3459,7 @@ class WorkflowExecutor:
         textContent；消息计数优先用站点 message_wrapper/result_container，
         兜底 z.ai 的 div[id^="message-"]。"""
         state = {"input_len": -1, "msg_count": -1, "turn_count": -1,
-                 "url": ""}
+                 "article_count": -1, "body_len": -1, "url": ""}
         try:
             state["url"] = (self.tab.url or "").split('?')[0]
         except Exception:
@@ -3460,6 +3472,8 @@ class WorkflowExecutor:
                 state["input_len"] = int(d.get("i", -1))
                 state["msg_count"] = int(d.get("m", -1))
                 state["turn_count"] = int(d.get("t", -1))
+                state["article_count"] = int(d.get("a", -1))
+                state["body_len"] = int(d.get("b", -1))
         except Exception:
             pass
         return state
@@ -5541,6 +5555,23 @@ class BrowserCore:
                                 time.sleep(3.0)
                             except Exception:
                                 pass
+                            # 双保险：刷新失败/SPA 未真正重载时附件可能
+                            # 仍在页面（2026-11-05 实测"上传了附件又分片"
+                            # 的共存场景）。FILE 策略下附件可见即上传
+                            # 已成功——信任附件继续，绝不带着附件分片。
+                            # （CHUNKED 部分上传不完整，不适用此信任）
+                            _fn = getattr(executor, "_last_upload_name", "")
+                            if (_fn
+                                    and upload_strategy == (
+                                        LongPromptRouter.STRATEGY_FILE)
+                                    and executor._verify_attachment_visible(
+                                        _fn)):
+                                logger.warning(
+                                    "[LongPrompt] 回退前复查到附件仍在页面，"
+                                    f"判定上传已成功: {_fn}，按附件策略继续")
+                                context["upload_done"] = True
+                                continue
+                            executor._clear_stale_attachments()
                             upload_strategy = LongPromptRouter.STRATEGY_DIRECT
                             context["upload_strategy"] = upload_strategy
                             context["upload_payload"] = None
@@ -5570,11 +5601,31 @@ class BrowserCore:
                                     time.sleep(3.0)
                                 except Exception:
                                     pass
-                                upload_strategy = (
-                                    LongPromptRouter.STRATEGY_DIRECT)
-                                context["upload_strategy"] = upload_strategy
-                                context["upload_payload"] = None
-                                context["prompt"] = raw_prompt
+                                # 双保险：刷新失败/SPA 未真正重载时附件
+                                # 可能仍在页面。FILE 策略下附件可见即
+                                # 上传已成功——信任附件继续正常填发，
+                                # 绝不带着附件分片（CHUNKED 部分上传
+                                # 不完整，不适用此信任）
+                                _fn = getattr(
+                                    executor, "_last_upload_name", "")
+                                if (_fn
+                                        and upload_strategy == (
+                                            LongPromptRouter.STRATEGY_FILE)
+                                        and executor.
+                                        _verify_attachment_visible(_fn)):
+                                    logger.warning(
+                                        "[LongPrompt] 回退前复查到附件仍在"
+                                        f"页面，判定上传已成功: {_fn}，"
+                                        "按附件策略继续")
+                                    context["upload_done"] = True
+                                else:
+                                    executor._clear_stale_attachments()
+                                    upload_strategy = (
+                                        LongPromptRouter.STRATEGY_DIRECT)
+                                    context["upload_strategy"] = (
+                                        upload_strategy)
+                                    context["upload_payload"] = None
+                                    context["prompt"] = raw_prompt
 
                     selector = selectors.get(target_key, "")
                     if not selector and action not in ("WAIT", "KEY_PRESS"):
@@ -5810,11 +5861,19 @@ class BrowserCore:
         limit = int(chunk_limit
                     or BrowserConstants.get('DIRECT_CHUNK_CHARS') or 24000)
         # 兜底：页面若残留已附上的附件（验证假阴性误回退/上一轮发送
-        # 失败残留），先清理再分片，避免"附件完整附带却还在分片"共存
+        # 失败残留），先清理再分片，避免"附件完整附带却还在分片"共存。
+        # 2026-11-05 修正：只查 input[type=file].files 检测不到已被
+        # 站点接管的 chip（files 被清空、chip 仍在）——文件名仍可见
+        # 时同样算残留，一并清理
         try:
-            if executor.tab.run_js(
+            _fn = getattr(executor, "_last_upload_name", "")
+            stale = bool(_fn
+                         and executor._verify_attachment_visible(_fn))
+            if not stale:
+                stale = bool(executor.tab.run_js(
                     "var i=document.querySelector('input[type=file]');"
-                    "return !!(i&&i.files&&i.files.length>0)"):
+                    "return !!(i&&i.files&&i.files.length>0)"))
+            if stale:
                 executor._clear_stale_attachments()
         except Exception:
             pass

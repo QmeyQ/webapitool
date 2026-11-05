@@ -314,21 +314,77 @@ class HTMLCleaner:
 
 # ================= 选择器验证器 =================
 
+def normalize_selector_group(value) -> str:
+    """站点控件的多 UI 选择器 → 单条 CSS 逗号分组串（多 UI 兼容核心）。
+
+    - str 原样返回（本身已支持 'sel1, sel2' 逗号分组）
+    - list/tuple：逐条剥掉 css:/tag: 前缀，合并为 CSS 逗号分组——
+      document.querySelector(All) 对逗号分组天然"任一命中即用"，
+      下游 ElementFinder/_plain_css/JS 采样的字符串假设全部无需改动
+    - xpath:/@/@@ 无法进 CSS 分组，出现在列表中时告警丢弃
+      （现实中多 UI 变体均为 CSS 选择器）
+    - None/空列表 → ''（下游 if selector: 判空跳过）"""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if not isinstance(value, (list, tuple)):
+        return str(value).strip()
+    parts = []
+    for item in value:
+        s = str(item or "").strip()
+        if not s:
+            continue
+        low = s.lower()
+        if low.startswith(("xpath:", "@", "@@")):
+            logger.warning(
+                f"[Sel] 多UI列表暂不支持非CSS选择器，已忽略: {s}")
+            continue
+        if low.startswith("css:"):
+            s = s[4:].strip()
+        elif low.startswith("tag:"):
+            s = s[4:].strip()
+        if s:
+            parts.append(s)
+    return ", ".join(dict.fromkeys(parts))
+
+
 class SelectorValidator:
     """选择器验证器"""
-    
-    def validate(self, selectors: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
-        """验证并修复选择器"""
+
+    def validate(self, selectors: Dict[str, object]) -> Dict[str, object]:
+        """验证并修复选择器（值支持 str 或 list 多 UI 变体）
+
+        list 时逐条校验、只剔除无效条目（多 UI 的意义就是变体
+        独立有效），列表清空才回退 fallback。"""
         fixed = {}
-        
+
         for key, selector in selectors.items():
             if selector is None:
                 fixed[key] = FALLBACK_SELECTORS.get(key)
                 continue
-            
+
+            if isinstance(selector, list):
+                kept = []
+                for item in selector:
+                    if not isinstance(item, str) or not item.strip():
+                        continue
+                    bad = next(
+                        (reason for pattern, reason
+                         in INVALID_SYNTAX_PATTERNS
+                         if re.search(pattern, item)), None)
+                    if bad:
+                        logger.warning(
+                            f"❌ 多UI列表无效条目 [{key}]: {item}"
+                            f" ({bad})，已剔除")
+                        continue
+                    kept.append(item)
+                fixed[key] = kept if kept else FALLBACK_SELECTORS.get(key)
+                continue
+
             is_invalid = False
             invalid_reason = ""
-            
+
             for pattern, reason in INVALID_SYNTAX_PATTERNS:
                 if re.search(pattern, selector):
                     is_invalid = True
@@ -625,6 +681,20 @@ class ConfigEngine:
         except Exception as e:
             logger.error(f"保存配置失败: {e}")
     
+    def _normalized_snapshot(self, config: dict) -> dict:
+        """配置快照（deepcopy），selectors 的多 UI 列表归一化为
+        CSS 逗号分组串。str/None 值原样保留（不改变 or 链语义），
+        下游所有字符串假设的消费者拿到的仍是 str。"""
+        snap = copy.deepcopy(config)
+        sel = snap.get("selectors")
+        if isinstance(sel, dict):
+            snap["selectors"] = {
+                k: normalize_selector_group(v)
+                if isinstance(v, (list, tuple)) else v
+                for k, v in sel.items()
+            }
+        return snap
+
     def get_site_config(self, domain: str, html_content: str) -> Optional[SiteConfig]:
         """
         获取站点配置（缓存 + AI 分析）
@@ -634,7 +704,7 @@ class ConfigEngine:
             html_content: 页面 HTML
             
         Returns:
-            站点配置的快照（副本）
+            站点配置的快照（副本，多 UI 列表已归一化）
         """
         # 1. 尝试热更新：检查文件变化
         self.refresh_if_changed()
@@ -651,7 +721,7 @@ class ConfigEngine:
             
             logger.debug(f"使用缓存配置: {domain}")
             # 返回深拷贝快照，保证 browser_core 使用期间配置不被外部修改影响
-            return copy.deepcopy(config)
+            return self._normalized_snapshot(config)
         
         # AI 识别
         logger.info(f"🔍 未知域名 {domain}，启动 AI 识别...")
@@ -684,7 +754,7 @@ class ConfigEngine:
             self._save_config()
             
             logger.info(f"✅ 配置已生成并保存: {domain}")
-            return copy.deepcopy(new_config)
+            return self._normalized_snapshot(new_config)
         
         # 使用回退配置
         logger.warning(f"⚠️  AI 分析失败，使用通用回退配置: {domain}")
@@ -702,7 +772,7 @@ class ConfigEngine:
         self.sites[domain] = fallback_config
         self._save_config()
         
-        return copy.deepcopy(fallback_config)
+        return self._normalized_snapshot(fallback_config)
     
     def _guess_stealth(self, domain: str) -> bool:
         """推测是否需要隐身模式"""

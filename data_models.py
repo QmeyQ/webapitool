@@ -75,7 +75,9 @@ class UploadConfig(TypedDict, total=False):
 # ================= 站点配置 =================
 
 class SiteConfig(TypedDict, total=False):
-    selectors: Dict[str, Optional[str]]
+    # 选择器值支持 str（单 UI）或 list[str]（多 UI 变体，任一命中即用，
+    # 运行时由 config_engine.normalize_selector_group 归一化为 CSS 逗号分组）
+    selectors: Dict[str, Optional[str | List[str]]]
     workflow: List[WorkflowStep]
     stealth: bool
     stream_config: StreamConfig
