@@ -220,6 +220,22 @@ def _plain_css(selector: str) -> str:
     return s
 
 
+def _conversation_key(url: str) -> str:
+    """对话标识（会话路径尾段，如 chatgpt.com/c/<id> 的 <id>）。
+
+    压缩基准、附件登记、分片断点都必须绑到"具体哪一个对话"：换了对话
+    （点了新聊天、切了账号、重开标签）之后，前面那些内容就不再存在于模型
+    的上下文里，沿用旧基准就会把"其实没送达"的内容当成重复压掉。
+    新会话（无 /c/<id>）返回 ""，同一状态内稳定。"""
+    try:
+        u = (url or "").split("?")[0].split("#")[0]
+        path = u.split("://", 1)[-1].split("/", 1)[1] if "/" in u.split("://", 1)[-1] else ""
+        segs = [s for s in path.split("/") if s]
+        return segs[-1][:60] if segs else ""
+    except Exception:
+        return ""
+
+
 def _resolve_profile_dir(raw: str) -> str:
     """账号 profile 路径解析（锚定项目根，失效时自动改道）。
 
@@ -2401,6 +2417,15 @@ class ToolRoundBuilder:
             " description 和 parameters 选择工具并组织 arguments）：\n"
             + json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
         )
+
+    # 工具清单可压缩后的取回口令：清单被压掉时网页 AI 只回这个词，
+    # 中转识别到就补发完整清单再让它继续作答（每轮至多一次，防死循环）。
+    TOOL_LIST_TOKEN = "toollist"
+    TOOL_LIST_REMINDER = (
+        "〔工具清单机制〕本轮完整工具清单可能已被压缩省略。若你已看不到"
+        "「工具清单」章节、或不确定可调用哪些工具，请只回复 toollist"
+        "（不要附带任何其他内容），我会立刻补发完整清单。需要执行操作时"
+        "仍按清单格式输出 tool_call。\n\n")
 
     @staticmethod
     def build(messages: List[Dict], tools: Optional[List[Dict]] = None,
@@ -5627,7 +5652,9 @@ class BrowserCore:
         # 轮（启用压缩）；否则新会话全量重放。与 tab 无关——原 fp 绑定
         # 命中/新开的等价判定（2026-11-05 删除切 tab 逻辑后保留语义）
         fp = self._session_fp(messages)
-        fk = f"{domain}:{fp}" if fp else ""
+        _cv = _conversation_key(getattr(tab, "url", "") or "")
+        fk = (f"{domain}:{fp}:{_cv}" if (fp and _cv)
+              else (f"{domain}:{fp}" if fp else ""))
         session_new = not (fk and (getattr(self, '_fp_last_payload', {})
                                    or {}).get(fk))
         logger.info(
@@ -5829,6 +5856,11 @@ class BrowserCore:
             raw_prompt = ToolRoundBuilder.build(
                 effective_messages, tools, tool_choice,
                 protocol_mode="always_table", think_hint=think_hint)
+            # 工具表本体改为可压缩（整张表每轮重发极占字数），改为在开头钉一行
+            # "取回说明"：这行永远原样发送，AI 发现清单没了能自己喊 toollist
+            if tools:
+                raw_prompt = (ToolRoundBuilder.TOOL_LIST_REMINDER
+                              + raw_prompt)
 
             # —— 会话消息压缩（msg_condense）——
             # IDE 每轮重放完整历史（系统规则+工具轮次），prompt 数万字且
@@ -5845,7 +5877,9 @@ class BrowserCore:
             # 文本，否则下一轮永远没有比对基准、压缩永远不生效
             try:
                 _fp0 = self._session_fp(messages)
-                _fk = f"{domain}:{_fp0}" if _fp0 else ""
+                _convk = _conversation_key(getattr(tab, "url", "") or "")
+                _fk = (f"{domain}:{_fp0}:{_convk}"
+                       if (_fp0 and _convk) else (f"{domain}:{_fp0}" if _fp0 else ""))
             except Exception:
                 _fk = ""
             # 站点报"上下文窗口已达上限"→ 重开对话，并把本轮当新会话：
@@ -5889,19 +5923,25 @@ class BrowserCore:
                         # "always_table") 下 tools 非空必带 protocol；
                         # hint 条件与 is_tool_continuation 一致，
                         # "+2" 对应 parts 间的 "\n\n" 分隔符。
-                        _protect = 0
-                        if tools:
-                            _protect += len(
-                                ToolRoundBuilder.tool_protocol(tools)) + 2
-                        if think_hint:
-                            _protect += len(
-                                ToolRoundBuilder.DEEP_THINK_HINT) + 2
-                        if is_tool_continuation:
-                            _protect += len(
-                                ToolRoundBuilder.TOOL_CONTINUATION_HINT) + 2
-                        _c = condense(raw_prompt, _prev,
-                                      protect_prefix=_protect,
-                                      ref_note=_ref_note)
+                        # 豁免区只放"取回说明"那一行。以前这里豁免整张工具表
+                        # （tool_protocol 全文），于是每轮都要把几千字的表重发
+                        # 一遍。现在工具表允许被压缩省略：AI 若因此看不到清单，
+                        # 按开头的说明回一句 toollist，中转就当场补发完整清单
+                        # （见 _resupply_tool_list）。
+                        _protect = (len(ToolRoundBuilder.TOOL_LIST_REMINDER)
+                                    if tools else 0)
+                        # 最新一轮用户消息绝不压缩：它是本轮唯一"必须新送达"
+                        # 的内容。站点在上下文超限时会静默把更早的上文与附件
+                        # 挤出模型窗口，此时拿它去比"重复"会把用户指令压成
+                        # 占位符，模型端直接看不到（2026-11-06 复现）。
+                        _mk = "\n[user]\n"
+                        _tp = raw_prompt.rfind(_mk)
+                        _head = raw_prompt[:_tp] if _tp > 0 else raw_prompt
+                        _tail = raw_prompt[_tp:] if _tp > 0 else ""
+                        _ch = condense(_head, _prev,
+                                       protect_prefix=_protect,
+                                       ref_note=_ref_note)
+                        _c = _ch + _tail if _tp > 0 else _ch
                         if _c != raw_prompt:
                             raw_prompt = _c
                             _condense_applied = True
@@ -6009,6 +6049,7 @@ class BrowserCore:
                 # 不停止就发送会被页面忽略
                 executor._ensure_page_idle()
                 pre_send_state = None
+                tool_list_resupplied = False
                 for step in workflow:
                     if self._should_stop_checker():
                         break
@@ -6242,6 +6283,28 @@ class BrowserCore:
                         # 走到这里说明发送已确认（或已自动恢复）
                         _send_confirmed = True
 
+                    # 工具清单取回通道：AI 只回 toollist 就说明它没看到清单
+                    # （工具表被压缩省略了），当场补发完整清单并继续监听，
+                    # 让它在同一个会话里正常作答；每轮至多补发一次
+                    if (action in ("STREAM_WAIT", "STREAM_OUTPUT")
+                            and tools and not tool_list_resupplied):
+                        if self._ai_asks_tool_list(
+                                getattr(executor, "_final_complete_text", "")):
+                            tool_list_resupplied = True
+                            logger.info(
+                                "[ToolList] 网页 AI 回复 toollist，"
+                                "索要完整工具清单")
+                            if self._resupply_tool_list(
+                                    executor, tools, selectors, context):
+                                yield from executor.execute_step(
+                                    action="STREAM_WAIT",
+                                    selector=selectors.get(
+                                        "result_container", ""),
+                                    target_key="result_container",
+                                    value=None, optional=True,
+                                    context=context)
+                            continue
+
             finally:
                 if not getattr(executor, "_already_finished", False):
                     yield self.formatter.pack_finish()
@@ -6257,6 +6320,15 @@ class BrowserCore:
                 # 从本地 uploads 读回来比对。
                 if _send_confirmed and _fk:
                     try:
+                        # 记录键用"发送之后"的对话标识：新会话是在发出第一条消息
+                        # 后 URL 才出现 /c/<id>，沿用发送前的键会让下一轮找不到
+                        # 基准 → 误判新会话 → 点新聊天丢掉续聊上下文
+                        try:
+                            _cv2 = _conversation_key(executor.tab.url or "")
+                        except Exception:
+                            _cv2 = ""
+                        _fk_rec = (f"{domain}:{_fp0}:{_cv2}"
+                                   if (_fp0 and _cv2) else _fk)
                         if not hasattr(self, '_fp_last_payload'):
                             self._fp_last_payload = {}
                         _via_attach = bool(
@@ -6287,7 +6359,7 @@ class BrowserCore:
                                                .get("files") or [])]
                                 _names = [n for n in _names if n]
                                 if _names:
-                                    self._fp_attach[_fk] = {
+                                    self._fp_attach[_fk_rec] = {
                                         "names": _names[:5],
                                         "label": "、".join(_names[-2:])}
                                     while len(self._fp_attach) > 64:
@@ -6298,8 +6370,8 @@ class BrowserCore:
                                     f"[MsgCondense] 附件基准登记失败: {_ae}")
                         if _rec:
                             # 先弹出再插入：活跃会话刷新 LRU 顺序
-                            self._fp_last_payload.pop(_fk, None)
-                            self._fp_last_payload[_fk] = _rec
+                            self._fp_last_payload.pop(_fk_rec, None)
+                            self._fp_last_payload[_fk_rec] = _rec
                             # 上限 64：OpenClaw 并发子代理多，8 个会把
                             # 正在续聊的主任务指纹淘汰 → 下一轮误判
                             # 新会话点"新聊天"，毁掉续聊会话并全量
@@ -6437,6 +6509,39 @@ class BrowserCore:
         except Exception as e:
             logger.warning(f"[CtxLimit] 点击新聊天失败: {e}")
         return True
+
+    def _ai_asks_tool_list(self, text: str) -> bool:
+        """AI 这一轮是否就是在索要工具清单（整条回复只有 toollist 口令）。
+
+        必须严格相等：正常回答里也可能提到 toollist 或工具名，误判会凭空
+        多补发一轮工具表，白烧字数与时间。"""
+        t = (text or "").strip().strip("`*＿_—- \u3000").lower()
+        t = t.rstrip("。.!！?？,，~～")
+        return t == ToolRoundBuilder.TOOL_LIST_TOKEN
+
+    def _resupply_tool_list(self, executor, tools, selectors, context) -> bool:
+        """把完整工具清单补发进同一会话（工具表被压缩省略时的取回通道）。"""
+        try:
+            block = ("〔完整工具清单〕下面是本轮真实可用的工具与调用格式，"
+                     "按原任务继续作答即可，不必再回复 toollist。\n\n"
+                     + ToolRoundBuilder.tool_protocol(tools))
+            executor._execute_fill(
+                selectors.get("input_box", ""), block,
+                target_key="input_box", optional=False,
+                msg_selector=(selectors.get("message_wrapper")
+                              or selectors.get("result_container") or ""))
+            for _c in executor.execute_step(
+                    action="CLICK",
+                    selector=selectors.get("send_btn", ""),
+                    target_key="send_btn", value=None,
+                    optional=True, context=context):
+                if _c:
+                    pass
+            logger.info(f"[ToolList] 已补发完整工具清单（{len(block)} 字符）")
+            return True
+        except Exception as e:
+            logger.warning(f"[ToolList] 补发工具清单失败: {e}")
+            return False
 
     def _do_upload(self, executor, context, upload_cfg, selectors=None,
                    session_fk: str = ""):

@@ -97,7 +97,7 @@ class TestCondense:
         t = _rule_block(8000)
         out = condense(t, t)
         assert out != t
-        assert "新增内容" in out
+        assert "与上文完全相同" in out, "头部占位符应标注与上文重复"
 
     def test_tail_content_not_corrupted(self):
         rules = _rule_block(6000)
@@ -138,7 +138,7 @@ class TestBlockCondense:
         assert "动态时间戳" in out, "前缀截止处的内容必须保留"
         assert "本轮新增任务" in out, "新增内容必须保留"
         assert len(out) < len(new) - 1200, "中段重复块应被大幅压缩"
-        assert out.count("此处省略") >= 1, "应出现块级占位符"
+        assert out.count("〔省略") >= 1, "应出现块级占位符"
 
     def test_head_and_block_combined(self):
         """头部前缀压缩与块级去重可同时生效"""
@@ -171,7 +171,7 @@ class TestBlockCondense:
         out = condense(new, prev)
         assert out != new, "100+ 字符重复段应压缩"
         assert "NEW 本轮新增任务内容" in out, "新增内容必须保留"
-        assert "此处省略" in out, "块级占位符应出现"
+        assert "〔省略" in out, "块级占位符应出现"
         assert "PREV 独有尾部内容" not in out
 
         # 多个分散的重复段各自独立压缩
@@ -182,7 +182,7 @@ class TestBlockCondense:
         prev2 = segA + "中间隔断A\n" + segB + "PREV 尾\n"
         new2 = segA + "中间隔断B\n" + segB + "NEW 尾\n"
         out2 = condense(new2, prev2)
-        assert out2.count("此处省略") == 2, "每个重复段都应各自压缩"
+        assert out2.count("〔省略") == 2, "每个重复段都应各自压缩"
         assert "NEW 尾" in out2 and "中间隔断B" in out2
 
     def test_block_never_eats_new_content(self):
@@ -316,7 +316,7 @@ class TestCondenseRefNote:
         prev = _rule_block(4000)
         new = prev + "\n新增\n"
         out = condense(new, prev)
-        assert "本会话此前消息" in out
+        assert "与上文" in out, "默认措辞：相同段用 … 标记，不提附件"
         assert "附件" not in out, "不带 ref_note 时文案保持原样"
 
 
@@ -395,6 +395,36 @@ class TestContextLimitHandling:
 
         assert bc._handle_context_limit(T(), {}, "fk") is True
         assert "fk" not in bc._fp_last_payload
+
+
+class TestToolListHatch:
+    """工具表可压缩后的取回口令：只回 toollist 才算索要清单"""
+
+    def _bc(self):
+        from browser_core import BrowserCore
+        return object.__new__(BrowserCore)
+
+    def test_token_only_counts(self):
+        bc = self._bc()
+        assert bc._ai_asks_tool_list("toollist") is True
+        assert bc._ai_asks_tool_list(" toollist ") is True
+        assert bc._ai_asks_tool_list("`toollist`") is True
+
+    def test_normal_answers_not_matched(self):
+        bc = self._bc()
+        assert bc._ai_asks_tool_list("好的，我来执行 toollist 之外的任务") is False
+        assert bc._ai_asks_tool_list("") is False
+        # 带 tool_call 的正常工具轮次不能被当成索要清单
+        assert bc._ai_asks_tool_list(
+            "需要工具：toollist 与 tool_call 混在一起") is False
+
+    def test_conversation_key_isolates_baselines(self):
+        """基准键必须带对话标识：换了 /c/<id> 就不能沿用旧基准"""
+        from browser_core import _conversation_key as ck
+        assert ck("https://chatgpt.com/c/abc123") == "abc123"
+        assert ck("https://chatgpt.com/c/abc123?x=1") == "abc123"
+        assert ck("https://chatgpt.com/") == ""
+        assert ck("https://chatgpt.com/c/abc123") != ck("https://chatgpt.com/c/zzz9")
 
 
 if __name__ == "__main__":
