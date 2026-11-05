@@ -64,7 +64,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from browser_core import (get_browser, BrowserConnectionError,
                           BrowserConstants, CreditStateStore,
                           CREDIT_EXHAUSTED_RE, get_site_model_candidates,
-                          TooLongError)
+                          PageUnavailableError, TooLongError)
 from config_engine import config_engine, ConfigConstants
 from request_manager import request_manager, RequestContext, RequestStatus, watch_client_disconnect
 from data_models import (
@@ -603,6 +603,18 @@ async def _stream_with_lifecycle(
             site_domain 指定时跳过候选模型积分全部耗尽的账号，
             exclude_ports 跳过本请求已尝试过的账号），切换成功直接用
             新账号重试；无备用实例时刷新会话页重试。"""
+            # 机器级故障先拦掉：站点不可达时换账号 = 同一台机器同一网络
+            # 再试一次，只会把请求拖成"切号 → 关窗 → 重启 Chrome"的循环
+            try:
+                _st = browser.page_state()
+            except Exception:
+                _st = {"state": "unknown", "detail": ""}
+            if _st.get("state") == "error_page":
+                logger.error(
+                    f"请求 [{ctx.request_id}] 站点不可达"
+                    f"（{_st.get('detail')}）——网络/代理层故障，"
+                    "换账号无效，跳过实例轮转与刷新重试")
+                return False
             old_port = getattr(browser, "port", None)
             try:
                 if browser.switch_instance(exclude_port=old_port,
@@ -618,7 +630,7 @@ async def _stream_with_lifecycle(
             except Exception as e:
                 logger.warning(f"实例切换失败: {e}")
             try:
-                tab = getattr(browser, "tab", None)
+                tab = browser.current_tab()
                 if tab is not None:
                     logger.warning(f"请求 [{ctx.request_id}] 零输出，刷新页面自恢复")
                     tab.refresh()
@@ -864,6 +876,13 @@ async def _stream_with_lifecycle(
                     else:
                         logger.warning(
                             f"请求 [{ctx.request_id}] 重试后仍零输出（网页端可能未响应）")
+            except PageUnavailableError as e:
+                # 页面本身不可用（错误页/未登录）：真因在会话或网络层，
+                # 不是选择器、也不是站点额度——换账号和改配置都无用
+                logger.error(
+                    f"请求 [{ctx.request_id}] 页面不可用"
+                    f"（{e.kind}）: {e.detail}")
+                chunk_queue.put(("ERROR", f"网页端不可用：{e.detail}"))
             except TooLongError as e:
                 # 消息过长拒收：标记 (账号, 站点)，仪表盘可见可清除；
                 # 不切账号重试（长文本换账号同样超限）

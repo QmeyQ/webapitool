@@ -5,27 +5,27 @@
     {
       "name": "acc1",
       "port": 9222,
-      "user_data_dir": "c:\\Users\\mey\\Desktop\\universalweb-api-main\\chrome_profiles\\acc1"
+      "user_data_dir": "chrome_profiles\\acc1"
     },
     {
       "name": "acc2",
       "port": 9223,
-      "user_data_dir": "c:\\Users\\mey\\Desktop\\universalweb-api-main\\chrome_profiles\\acc2"
+      "user_data_dir": "chrome_profiles\\acc2"
     },
     {
       "name": "acc3",
       "port": 9224,
-      "user_data_dir": "c:\\Users\\mey\\Desktop\\universalweb-api-main\\chrome_profiles\\acc3"
+      "user_data_dir": "chrome_profiles\\acc3"
     },
     {
       "name": "acc4",
       "port": 9225,
-      "user_data_dir": "c:\\Users\\mey\\Desktop\\universalweb-api-main\\chrome_profiles\\acc4"
+      "user_data_dir": "chrome_profiles\\acc4"
     },
     {
       "name": "acc12",
       "port": 9226,
-      "user_data_dir": "c:\\Users\\mey\\Desktop\\universalweb-api-main\\chrome_profiles\\acc12"
+      "user_data_dir": "chrome_profiles\\acc12"
     }
   ],
   "CONNECTION_TIMEOUT": 10,

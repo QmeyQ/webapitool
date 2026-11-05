@@ -182,6 +182,101 @@ def _plain_css(selector: str) -> str:
     return s
 
 
+def _resolve_profile_dir(raw: str) -> str:
+    """账号 profile 路径解析（锚定项目根，失效时自动改道）。
+
+    user_data_dir 写绝对路径时，项目目录一旦改名/移动，旧路径并不报错，
+    Chrome 会静默新建一个未登录的空 profile——表现是"输入框找不到、
+    附件注入无反应"，排查方向极易被带去怀疑站点或额度。2026-11-05 实锤：
+    配置里的 desktop 旧目录已不存在，5 个账号在 16:55 全被新建空 profile 顶掉。
+    因此相对路径按项目根解析；绝对路径不存在而项目内有同名 profile 时改用它。"""
+    if not raw:
+        return ""
+    p = Path(raw).expanduser()
+    if not p.is_absolute():
+        p = Path(__file__).resolve().parent / p
+    if p.exists():
+        return str(p)
+    local = (Path(__file__).resolve().parent
+             / "chrome_profiles" / p.name)
+    if local.is_dir():
+        logger.warning(
+            f"[Instance] profile 路径已失效: {p} —— 改用项目内同名 profile "
+            f"{local}（登录态在此）")
+        return str(local)
+    return str(p)
+
+
+# 站点页面是否还处在"能输入"的状态：错误页 / 登录墙 / 无可见输入控件
+_PAGE_STATE_JS = """
+var out = {url: location.href || '', err_code: '',
+           visible_editors: 0, login_wall: 0, btn_texts: ''};
+var bt = (document.body && document.body.innerText) || '';
+var m = bt.match(/ERR_[A-Z0-9_]+/);
+if (m) { out.err_code = m[0]; }
+var sel = ['[contenteditable="true"]', '[contenteditable="plaintext-only"]',
+           '.ProseMirror', 'textarea', '#prompt-textarea'];
+for (var i = 0; i < sel.length; i++) {
+  var els = document.querySelectorAll(sel[i]);
+  for (var j = 0; j < els.length; j++) {
+    var e = els[j];
+    if ((e.offsetWidth > 40 || e.offsetHeight > 16) &&
+        (e.offsetWidth || e.offsetHeight || e.getClientRects().length)) {
+      out.visible_editors++;
+    }
+  }
+}
+if (!out.visible_editors) {
+  var btns = document.querySelectorAll('a,button,[role="button"]');
+  var hits = [];
+  for (var k = 0; k < btns.length && hits.length < 3; k++) {
+    var t = (btns[k].innerText || btns[k].getAttribute('aria-label') || '').trim();
+    if (/^(log in|log_in|sign in|sign up|register|get started|continue with|登录|注册|开始使用|立即登录)/i.test(t)) { hits.push(t.slice(0, 12)); }
+  }
+  if (hits.length) { out.login_wall = 1; out.btn_texts = hits.join('|'); }
+}
+return out;
+"""
+
+# 状态 → 人话，供守卫与仪表盘复用（避免再把真因说成"额度耗尽"）
+_PAGE_STATE_MEANING = {
+    "error_page": "站点不可达（浏览器加载到错误页）",
+    "need_login": "账号未登录（profile 无会话，停在登录墙）",
+    "no_editor": "composer 未渲染（页面结构变化或被跳转）",
+}
+
+
+def probe_page_state(tab) -> dict:
+    """只读探测当前标签页可用性：ok / error_page / need_login /
+    no_editor / unknown。探测失败一律 unknown，绝不因守卫误伤正常站点。"""
+    if tab is None:
+        return {"state": "unknown", "detail": "无标签页"}
+    try:
+        d = tab.run_js(_PAGE_STATE_JS)
+    except Exception as e:
+        # 探测本身失败也要可见：曾因 JS 拼接出语法错误而静默返回
+        # unknown，守卫形同虚设，线上看到的仍是"编辑器拒绝注入"
+        logger.warning(f"[Page] 状态探测失败: {e}")
+        return {"state": "unknown", "detail": f"探测失败: {e}"}
+    if not isinstance(d, dict):
+        return {"state": "unknown", "detail": ""}
+    url = str(d.get("url") or "")
+    if (url.startswith("chrome-error://")
+            or url.startswith("about:neterror") or d.get("err_code")):
+        return {"state": "error_page",
+                "detail": (f"站点页面加载失败 "
+                           f"({d.get('err_code') or '错误页'}，"
+                           f"当前 URL {url[:60]})")}
+    if d.get("login_wall"):
+        return {"state": "need_login",
+                "detail": (f"页面停在登录墙（出现 "
+                           f"{d.get('btn_texts') or '登录/注册'} 入口、"
+                           "无输入控件）")}
+    if not d.get("visible_editors"):
+        return {"state": "no_editor", "detail": "页面上没有可见输入控件"}
+    return {"state": "ok", "detail": ""}
+
+
 def _drission_find(tab, selector: str, timeout: int = 1):
     """按 ElementFinder 的语法规则查找元素（与 _find_with_syntax 一致）。
 
@@ -408,6 +503,24 @@ class BrowserConnectionError(BrowserError):
 
 class ElementNotFoundError(BrowserError):
     pass
+
+
+class PageUnavailableError(ElementNotFoundError):
+    """页面已不在可交互的站点会话上——不是选择器也不是站点控件的问题。
+
+    kind: error_page（到站点的连接失败，机器级，换账号无用）
+          need_login（落在登录/注册墙，该 profile 没有会话）
+    """
+
+    def __init__(self, kind: str, detail: str):
+        super().__init__(f"[{kind}] {detail}")
+        self.kind = kind
+        self.detail = detail
+
+    @property
+    def machine_level(self) -> bool:
+        """机器级故障：换账号/换实例都改变不了"""
+        return self.kind == "error_page"
 
 
 class TooLongError(BrowserError):
@@ -3031,11 +3144,125 @@ class WorkflowExecutor:
         elif not optional:
             raise ElementNotFoundError(f"点击目标未找到: {selector}")
 
+    # ---------- 页面可用性守卫 ----------
+    # 页面上所有 file input 的"能不能吃下这个文件"事实，交由 Python 侧评分
+    _FILE_INPUT_FACTS_JS = (
+        "return Array.from(document.querySelectorAll("
+        "'input[type=\"file\"]')).map(function(el,i){"
+        "var f=el.closest('form');"
+        "return {i:i,accept:(el.accept||'').toLowerCase().trim(),"
+        "multiple:!!el.multiple,"
+        "in_editor_form:!!(f&&f.querySelector("
+        "'.ProseMirror,[contenteditable=\"true\"],textarea')),"
+        "hidden:!(el.offsetWidth||el.offsetHeight)};});")
+
+    # 常见扩展名 → MIME/子类型，用于按 accept 判断可用性
+    _UPLOAD_MIME = {
+        "txt": ("text/plain",), "md": ("text/plain", "text/markdown"),
+        "csv": ("text/csv",), "tsv": ("text/tab-separated-values",),
+        "json": ("application/json",), "xml": ("application/xml",),
+        "pdf": ("application/pdf",), "doc": ("application/msword",),
+        "docx": ("application/vnd.openxmlformats-officedocument."
+                 "wordprocessingml.document",),
+        "xls": ("application/vnd.ms-excel",),
+        "xlsx": ("application/vnd.openxmlformats-officedocument."
+                 "spreadsheetml.sheet",),
+        "pptx": ("application/vnd.openxmlformats-officedocument."
+                 "presentationml.presentation",),
+        "zip": ("application/zip", "application/x-zip-compressed"),
+        "png": ("image/png",), "jpg": ("image/jpeg",),
+        "jpeg": ("image/jpeg",), "gif": ("image/gif",),
+        "webp": ("image/webp",), "svg": ("image/svg+xml",),
+        "bmp": ("image/bmp",), "mp3": ("audio/mpeg",),
+        "wav": ("audio/wav",), "mp4": ("video/mp4",),
+    }
+
+    def _page_state(self) -> dict:
+        return probe_page_state(self.tab)
+
+    def _guard_page_usable(self, where: str):
+        """输入/上传前的硬守卫：错误页与登录墙没有任何成功可能，
+        立刻带真实原因失败，别再走"清空重写→分块→回退直输"的无用功。"""
+        st = self._page_state()
+        if st["state"] in ("error_page", "need_login"):
+            logger.error(f"[Page] {where} 中止：{st['detail']}")
+            raise PageUnavailableError(st["state"], st["detail"])
+        return st
+
+    def _pick_upload_input(self, file_path: str):
+        """在页面所有 file input 中挑真正能接收该文件的那个。
+
+        兜底"取第一个 input[type=file]"在 ChatGPT 上必然取错：composer 的
+        form 内有 4 个隐藏口，前几个 accept=image/*|video/*，只有 accept
+        为空的那个吃文档。往图片口注入 .txt 不报错但被站点静默丢弃 →
+        "文件已注入"而附件永不出现（2026-11-05 实锤）。"""
+        ext = (Path(file_path).suffix or "").lower().lstrip(".")
+        try:
+            els = self.finder.find_all('input[type="file"]') or []
+        except Exception as e:
+            logger.debug(f"[Upload] find_all 失败: {e}")
+            els = []
+        if not els:
+            return None
+        try:
+            facts = self.tab.run_js(self._FILE_INPUT_FACTS_JS) or []
+        except Exception as e:
+            logger.debug(f"[Upload] accept 探测失败: {e}")
+            facts = []
+        if not isinstance(facts, list) or len(facts) != len(els):
+            facts = []
+
+        def _score(f: dict) -> float:
+            acc = str(f.get("accept") or "")
+            parts = [p.strip() for p in acc.split(",") if p.strip()]
+            if not parts:
+                s = 3.0  # 无 accept 限制 = 通用文档通道
+            elif "*/*" in parts:
+                s = 3.0
+            else:
+                mimes = self._UPLOAD_MIME.get(ext, ())
+                s = -3.0
+                for p in parts:
+                    if p.startswith(".") and p[1:] == ext:
+                        s = max(s, 3.0)
+                    elif p.endswith("/*"):
+                        major = p.split("/")[0]
+                        if any(m.startswith(major + "/") for m in mimes):
+                            s = max(s, 2.0)
+                    elif mimes and p in mimes:
+                        s = max(s, 2.0)
+            if f.get("in_editor_form"):
+                s += 2.0   # 与可见编辑器同属一个 form = composer 的上传口
+            if f.get("multiple"):
+                s += 0.5   #  composer 文档口多为 multiple
+            return s
+
+        scored = []
+        for i, el in enumerate(els):
+            f = facts[i] if facts else {}
+            scored.append((_score(f), i, f))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        best, idx, info = scored[0]
+        if best <= 0:
+            logger.warning(
+                f"[Upload] 页面上 {len(els)} 个 file input 都无法接收 "
+                f".{ext}（accept={[str(x[2].get('accept') or '') for x in scored]}）")
+            return None
+        logger.info(
+            f"[Upload] 选用 file input #{idx} "
+            f"(accept='{info.get('accept') or ''}', "
+            f"composer 内={bool(info.get('in_editor_form'))}) "
+            f"承载 .{ext}")
+        return els[idx]
+
     def _execute_fill(self, selector: str, text: str,
                       target_key: str, optional: bool,
                       msg_selector: str = ""):
         if self._check_cancelled():
             return
+        # 错误页/登录墙下填充不可能成功：带真实原因立即失败，
+        # 不要浪费 30s 走"清空重写→分块 execCommand→回退直输"
+        self._guard_page_usable("填充")
         # 填充期间可能把消息直接发出去（Enter 发送型站点：fill 的
         # ele.input 遇文本换行触发提交，输入框随即被清空）。基线对比
         # 能把这种情况和"写入失败"区分开——后者才需要清空重写。
@@ -3215,9 +3442,14 @@ class WorkflowExecutor:
                 # fail fast 让上游走账号轮转，比卡死强。
                 cur2 = self.tab.run_js(_chk_js % json.dumps(_plain_css(selector)))
                 if isinstance(cur2, str) and _norm(cur2) != _norm(text):
+                    # 复核页面状态：填充过程中被踢到登录墙/错误页时，
+                    # "编辑器拒绝注入"会把人带去改选择器，真因却在会话或网络
+                    _st = self._page_state()
+                    _why = ("" if _st["state"] in ("ok", "unknown")
+                            else f"；页面状态：{_st['detail']}")
                     self._fill_verify_failed = (
                         f"输入框写入失败（读回 {len(cur2)} != {len(text)}，"
-                        "编辑器拒绝注入）")
+                        f"编辑器拒绝注入{_why}）")
         except Exception:
             pass
         # 终验在 except Exception: pass 之外执行，异常必须穿透
@@ -3240,6 +3472,10 @@ class WorkflowExecutor:
                 return
             raise ElementNotFoundError(f"上传文件不存在: {file_path}")
 
+        # 错误页/登录墙上没有 composer，站点也不会有文档上传口：
+        # 此时"注入成功"只是 CDP 写掉了某个隐藏 input，附件永不出现
+        self._guard_page_usable("上传")
+
         # 上传前清理残留：此前发送失败会在输入区堆附件（z.ai 上限 5 个，
         # 超限后发送按钮不生效），先移除旧的附件 chip
         self._clear_stale_attachments()
@@ -3261,10 +3497,14 @@ class WorkflowExecutor:
                 logger.debug(f"点击上传按钮失败: {e}")
 
         if not file_input:
-            file_input = self.finder.find('input[type="file"]', timeout=1)
+            # 不再"取第一个 input[type=file]"：ChatGPT 的 composer form 里
+            # 前几个口 accept=image/*|video/*，取第一个必然把文档注进图片口
+            file_input = self._pick_upload_input(file_path)
 
         if not file_input:
-            msg = "找不到 file input 元素（检查 upload_btn / file_input 选择器）"
+            msg = (f"找不到可接收 .{Path(file_path).suffix.lstrip('.') or '该文件'}"
+                   " 的上传口（站点未配置 file_input/upload_btn，"
+                   "且页面 input[type=file] 的 accept 均不匹配）")
             if optional:
                 logger.warning(f"跳过上传: {msg}")
                 return
@@ -3279,8 +3519,7 @@ class WorkflowExecutor:
                     "return !!(i&&i.isConnected)")
                 if not attached:
                     logger.warning("[Upload] file input 未挂载，重新查找")
-                    file_input = self.finder.find(
-                        'input[type="file"]', timeout=3)
+                    file_input = self._pick_upload_input(file_path)
             except Exception:
                 pass
             try:
@@ -3316,8 +3555,14 @@ class WorkflowExecutor:
                 break
             time.sleep(0.6)
         if not ok:
+            _st = self._page_state()
+            _why = {"error_page": "站点页面已不可达",
+                    "need_login": "账号未登录（该 profile 无会话）",
+                    "no_editor": "composer 已消失（页面被跳转/重绘）"}.get(
+                        _st["state"],
+                        "可能额度耗尽/被站点拒绝，或注入到了非文档上传口")
             raise ElementNotFoundError(
-                f"附件未出现在页面（上传假阳性，可能额度耗尽/被站点拒绝）: {fname}")
+                f"附件未出现在页面（上传假阳性：{_why}）: {fname}")
         logger.info(f"[Upload] 附件已验证可见: {fname}")
 
     def _verify_attachment_visible(self, file_name: str) -> bool:
@@ -4822,7 +5067,7 @@ class BrowserCore:
                    if cfg_path.exists() else {})
             inst = next((i for i in (cfg.get('INSTANCES') or [])
                          if int(i.get('port') or 0) == port), None)
-            udd = (inst or {}).get('user_data_dir')
+            udd = _resolve_profile_dir((inst or {}).get('user_data_dir') or '')
             if not udd:
                 return False
             chrome = None
@@ -4884,6 +5129,20 @@ class BrowserCore:
             logger.error(f"浏览器连接失败: {e}")
             self._connected = False
             return False
+
+    def current_tab(self):
+        """当前实例的活动标签页。
+
+        main.py 此前用 getattr(browser, 'tab', None) 取标签页，而本类没有
+        tab 属性 → 恒为 None → "零输出刷新页面自恢复"从来没真正执行过。"""
+        try:
+            return self.page.latest_tab
+        except Exception:
+            return None
+
+    def page_state(self) -> dict:
+        """当前实例页面可用性（main 侧决定是否换账号前先问这个）。"""
+        return probe_page_state(self.current_tab())
 
     def health_check(self) -> Dict[str, Any]:
         result = {
@@ -5540,6 +5799,10 @@ class BrowserCore:
                                             selectors=selectors,
                                             session_fk=_fk)
                             context["upload_done"] = True
+                        except PageUnavailableError:
+                            # 页面本身不可用（错误页/未登录）：回退直输同样
+                            # 会失败，只是多烧 30s 并掩盖真因，直接上抛
+                            raise
                         except ElementNotFoundError as e:
                             # 假阴性复查：chip 实际已渲染时信任附件，
                             # 不刷新（会毁掉已附上的附件）、不回退直输
@@ -5589,6 +5852,8 @@ class BrowserCore:
                                             selectors=selectors,
                                             session_fk=_fk)
                             context["upload_done"] = True
+                        except PageUnavailableError:
+                            raise
                         except ElementNotFoundError as e:
                             # 假阴性复查：chip 实际已渲染时信任附件，
                             # 不刷新（会毁掉已附上的附件）、不回退直输
