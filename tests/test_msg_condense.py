@@ -273,32 +273,39 @@ class TestAttachmentBaseline:
         f.write_text(text, encoding="utf-8")
         return f
 
-    def test_from_history_attachment_name(self):
-        """对话历史里认得出附件名 → 读本地文件复原基准"""
+    def test_name_seen_in_page_is_used_as_baseline(self):
+        """页面上下文里真的挂着这个附件 → 从本地 uploads 读回原文当基准"""
         from browser_core import BrowserCore
         text = _rule_block(3000)
         f = self._write_upload(text)
         try:
             bc = object.__new__(BrowserCore)
             bc._fp_attach = {}
-            got, label = bc._attachment_baseline(
-                self.CK1, f"请完整阅读我上传的文件 {self.NAME} 后完成任务")
+            got, label = bc._attachment_baseline(self.CK1, [self.NAME])
             assert got == text, "基准应等于附件原文"
             assert self.NAME in label
         finally:
             f.unlink(missing_ok=True)
 
-    def test_recorded_names_take_priority(self):
-        """本会话已登记附件名时不必再从历史里找"""
+    def test_registered_names_still_need_page_confirmation(self):
+        """我们登记过"这轮是附件交付"也不算数——必须当场在页面上看到它。
+
+        上传被站点静默拒绝时登记照旧写入，下一轮若据此省略，AI 两头
+        都看不到那段内容（既不在正文也不在附件），就是"找不到附件"。"""
         from browser_core import BrowserCore
-        text = "已交付的长内容\n" * 400
+        text = "已交付的长内容" * 300
         f = self._write_upload(text)
         try:
             bc = object.__new__(BrowserCore)
-            bc._fp_attach = {self.CK2: {"names": [self.NAME],
-                                        "label": self.NAME}}
-            got, label = bc._attachment_baseline(self.CK2, "")
-            assert got == text and label == self.NAME
+            p = bc._get_packager()
+            p.attachments[self.CK2] = {"names": [self.NAME],
+                                       "label": self.NAME,
+                                       "mode": "attachment"}
+            p.baseline[self.CK2] = text
+            got, _label = bc._attachment_baseline(self.CK2, [])
+            assert got == "", "页面没有该附件时不许拿它当基准"
+            got, _label = bc._attachment_baseline(self.CK2, [self.NAME])
+            assert got == text, "页面确认后应正常比对"
         finally:
             f.unlink(missing_ok=True)
 

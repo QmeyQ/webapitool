@@ -386,6 +386,41 @@ _PAGE_STATE_MEANING = {
 }
 
 
+# 扫页面里真实存在的附件文件名。判"上下文里有没有这份附件"只能看站点，
+# 不能看 IDE 重放给我们的消息文本——后者只证明客户端又把文件名发回中转
+# 一次。实测（2026-11-06）：本地 uploads 有 8 个 prompt_*.txt，网页对话里
+# 出现 0 次，那些全是上传失败回退留下的残档；按文件名去比对就会把占位符
+# 指向 AI 根本看不到的附件，表现为"找不到附件、答非所问"。
+_ATTACH_NAMES_IN_PAGE_JS = r"""
+var re = /prompt_\d+_[0-9a-f]{6}(?:_part\d{2}of\d{2})?\.txt/g;
+var seen = {};
+var nodes = document.querySelectorAll('a,div,span,button,p');
+for (var i = 0; i < nodes.length; i++) {
+  var e = nodes[i];
+  if (e.childElementCount > 0) continue;   // 只认叶子节点，避免同层重复
+  var t = (e.innerText || e.getAttribute('aria-label')
+           || e.getAttribute('title') || '');
+  var m = t.match(re);
+  if (m) { for (var k = 0; k < m.length; k++) { seen[m[k]] = 1; } }
+}
+var out = [];
+for (var key in seen) { out.push(key); }
+return out.slice(0, 40);
+"""
+
+
+def attachment_names_in_page(tab) -> list:
+    """当前网页对话里实际出现的附件文件名（含 composer 里待发送的）。"""
+    try:
+        got = tab.run_js(_ATTACH_NAMES_IN_PAGE_JS)
+    except Exception as e:
+        logger.debug(f"[Attach] 页面附件扫描失败: {e}")
+        return []
+    if not isinstance(got, list):
+        return []
+    return [str(x) for x in got if x]
+
+
 def probe_page_state(tab, domain: str = "") -> dict:
     """只读探测当前标签页可用性：ok / error_page / need_login /
     no_editor / usage_limited / unknown。探测失败一律 unknown，绝不因守卫误伤正常站点。
@@ -6080,12 +6115,9 @@ class BrowserCore:
             # 压缩基准已被作废，跳过压缩才能把完整历史一次性发进新对话
             if self._handle_context_limit(tab, selectors, _fk):
                 session_new = True
-            try:
-                _hist = "\n".join(str(m.get("content") or "")
-                                   for m in (messages or [])[-12:]
-                                   if isinstance(m, dict))
-            except Exception:
-                _hist = ""
+            # 压缩基准只能建立在"当场扫出来的网页上下文"上：
+            # IDE 重放给我们的消息文本里出现过的附件名，不代表网页会话里有它
+            _page_names = attachment_names_in_page(tab)
             _chunk_limit = int(site_config.get('CHUNK_CHARS')
                                or BrowserConstants.get('DIRECT_CHUNK_CHARS')
                                or 24000)
@@ -6096,7 +6128,7 @@ class BrowserCore:
                 messages=effective_messages, tools=tools,
                 think_hint=think_hint,
                 continuation=bool(is_continuation and not session_new),
-                ckey=_fk, history_text=_hist[-200000:],
+                ckey=_fk, page_names=_page_names,
                 upload_cfg=upload_cfg, chunk_limit=_chunk_limit,
                 max_chunks=int(BrowserConstants.get('MAX_CHUNKED_CHUNKS')
                                or 30))
@@ -6411,6 +6443,16 @@ class BrowserCore:
                         _fk_rec = (f"{domain}:{_cv2}" if _cv2 else _fk)
                         _pack = self._get_packager()
                         _pkg.original = _condense_original or _pkg.original
+                        # 这一轮内容**实际**是怎么落进网页会话的：
+                        # 只有 upload_done 为真（附件复查在页面上看见了）才算
+                        # 附件交付；被站点静默拒绝时其实走的是正文/分片，
+                        # 别把"以为传了附件"当成下一轮可以省略的依据
+                        if context.get("upload_done"):
+                            _pack.mark_delivery(_fk_rec, "attachment")
+                        elif context.get("chunked_sent"):
+                            _pack.mark_delivery(_fk_rec, "chunked")
+                        else:
+                            _pack.mark_delivery(_fk_rec, "text")
                         _pack.migrate(_fk, _fk_rec)
                         # 记的一律是"交付原文"（压缩前那份）：附件轮次模型
                         # 读的是文件，内容确实交付过；记短模板等于下轮没基准
@@ -6463,16 +6505,15 @@ class BrowserCore:
         self._get_packager().chunk_progress = (
             value if isinstance(value, dict) else {})
 
-    def _attachment_baseline(self, fk: str, history_text: str) -> tuple:
+    def _attachment_baseline(self, fk: str,
+                             page_names: Optional[list] = None) -> tuple:
         """比对基准查找——实现已迁到 PromptPackager.find_baseline，
         这里只留薄封装给老调用点用。返回 (基准文本, 附件说明)。
 
-        附件轮次的正文不在会话消息里，输入框只有"请阅读文件 xxx.txt"一句
-        短模板；但内容确实已经交给过模型（它读的是文件）。若不比对，下一轮
-        就无从压缩，几万字已交付内容被整份重发（2026-11-05 现场：续聊
-        prompt 96482 字符仍走 file 策略）。文件已被 uploads 清理或换机器
-        时读不到，退回全量发送。"""
-        prev, note, _src = self._get_packager().find_baseline(fk, history_text)
+        page_names 必须是**现场扫网页对话 DOM** 得到的附件文件名：
+        上一轮内容如果是以附件交付的，只有那个附件此刻还在页面里，
+        才允许把它的内容当压缩基准。"""
+        prev, note, _src = self._get_packager().find_baseline(fk, page_names)
         return prev, note
 
     def _invalidate_session_baseline(self, fk: str, why: str = ""):

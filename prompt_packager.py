@@ -16,9 +16,12 @@
   * "先压缩还是先决定附件"的次序没有代码层面的保证，只在注释里。
 
 这里把规则变成结构与顺序：prepare() 一定先压缩、再按**压缩后**的大小
-决定 direct/file/chunked；基准查找按可信度依次落地（持久化的对话基准 →
-本会话登记的附件文件 → 对话历史里出现的附件名；文件名必须出自本对话才敢
-拿来省略，"uploads 里最近的文件"那种猜测会造成真丢内容所以没有这一级）；
+决定 direct/file/chunked；"上下文里到底有什么"一律以**当场扫网页 DOM**
+为准，基准来源只有两种——本对话已确认送达的原文（以附件交付的，还要在
+页面上复核那个附件此刻仍在），以及页面 DOM 里真实出现的附件名所对应的
+本地文件。"uploads 里有同名文件"和"IDE 重放的消息文本里提到了文件名"
+都不算证据：前者多半是上传失败回退留下的残档（实测本地 8 个文件、
+网页对话里出现 0 次），后者只证明客户端又把名字发回中转了一次。
 工具表"这一轮模型一定会读到什么"由本类一次性决定并写进 composer_text。
 
 browser_core 只负责：调用 prepare()、照 plan 去上传/分片/填充、发送成功
@@ -216,49 +219,52 @@ class PromptPackager:
         return bool(ckey) and ":" in ckey and bool(ckey.split(":", 1)[1])
 
     def find_baseline(self, ckey: str,
-                      history_text: str = "") -> Tuple[str, str, str]:
+                      page_names: Optional[List[str]] = None) -> Tuple[str, str, str]:
         """返回 (基准文本, 附件说明, 来源)。找不到就返回 ("", "", "")，
         调用方据此全量发送——宁多不漏，绝不凭空缺内容。
 
-        顺序即可信度：
-          1 state/memory —— 该网页对话上一轮交付的原文（本进程记的或
-                             pack_state.json 里恢复的）
-          2 attach       —— 该对话登记过的附件文件名，从 uploads 读回原文
-          3 history      —— 对话历史里出现过的附件文件名（服务重启、登记
-                             丢了也能认回来；文件名出自本对话的历史，
-                             所以它一定属于这个对话）
+        只有两级，且都必须"当场成立"：
+          1 delivery —— 本对话上一轮**确认送达**的原文（record 只在发送校验
+                         通过后写；以附件交付的，还要下面的页面核对通过）
+          2 page-attachment —— 网页对话 DOM 里真实出现的附件名 ∩ 本地 uploads
+                         还能读到的原文
 
-        刻意**没有**"拿 uploads 里最近的文件当基准"这一级：文件本身不带着
-        对话标识，OpenClaw 并发子代理时最近的文件很可能属于另一个对话，
-        拿它比对就会把这个对话没送达过的内容当成重复省略掉——那是丢内容，
-        不是压得少。基准原文已经随 pack_state.json 持久化，重启也不丢。
+        page_names 必须由调用方现场扫页面得到（browser_core.attachment_names_in_page）。
+        曾经用过、现已删掉的两种依据：
+          * "IDE 重放的消息文本里提到了附件名" —— 那只是客户端把上一轮的文件名
+            又发回中转，跟网页会话里有没有这个附件毫无关系。实测（2026-11-06）
+            网页对话里 prompt_*.txt 出现 0 次，而本地 uploads 存着 8 个：
+            那些是上传失败后回退留下的残档。拿它们当基准，占位符就指向
+            AI 根本看不到的附件，表现为"找不到附件、答不出来"。
+          * "uploads 里最近的文件" —— 文件不带对话标识，并发子代理时很可能是
+            别的对话，误省略就是真丢内容。
         """
-        prev = self.baseline.get(ckey) or "" if self._conv_ok(ckey) else ""
-        if prev:
-            src = "memory" if (self.attachments.get(ckey) is None) else "state"
-            return prev, (self.attachments.get(ckey) or {}).get("label") or "", src
-        names, label = self._names_for(ckey, history_text)
-        if names and self._conv_ok(ckey):
-            text = self._read_files(names)
-            if text:
-                return text, label, ("attach" if ckey in self.attachments
-                                     else "history")
-        return "", "", ""
-
-    def _names_for(self, ckey: str, history_text: str) -> Tuple[List[str], str]:
+        page = [str(x) for x in (page_names or []) if x]
+        known = self.baseline.get(ckey) or "" if self._conv_ok(ckey) else ""
         info = self.attachments.get(ckey) or {}
-        names = [str(n) for n in (info.get("names") or []) if n]
-        label = info.get("label") or ""
-        if names:
-            return names, label
-        try:
-            found = re.findall(ATTACH_NAME_RE, history_text or "")
-        except Exception:
-            found = []
-        names = list(dict.fromkeys(found))[-6:]
-        if names:
-            label = "、".join(names[-2:])
-        return names, label
+        if known and self._conv_ok(ckey):
+            if info.get("names"):
+                ok, _hit = self.attachments_on_page(ckey, page)
+                if not ok:
+                    # 附件其实没落地（站点静默拒绝上传是最常见的一种）：
+                    # 基准里那些内容 AI 现在看不到，压掉就是丢内容
+                    logger.warning(
+                        f"[Packager] 登记的附件 {info.get('names')} 不在当前"
+                        "对话里，基准作废、本轮全量发送"
+                        "（上一轮的附件其实没落地）")
+                    self.baseline.pop(ckey, None)
+                    self.attachments.pop(ckey, None)
+                    self._save()
+                    known = ""
+            if known:
+                return known, info.get("label") or "", "delivery"
+        # 页面上确有附件，且本地还留着同一份文件 → 读回来当基准
+        usable = [n for n in page if re.fullmatch(ATTACH_NAME_RE, n)]
+        if usable and self._conv_ok(ckey):
+            text = self._read_files(usable[-6:])
+            if text:
+                return text, "、".join(usable[-2:]), "page-attachment"
+        return "", "", ""
 
     def _read_files(self, names: List[str]) -> str:
         """按文件名读回附件原文。
@@ -285,16 +291,19 @@ class PromptPackager:
 
     def prepare(self, *, build_text, messages: List[Dict],
                 tools: Optional[List[Dict]], think_hint: bool,
-                continuation: bool, ckey: str, history_text: str = "",
+                continuation: bool, ckey: str,
                 upload_cfg: Optional[Dict] = None,
                 chunk_limit: int = 24000,
-                max_chunks: int = 30) -> Package:
+                max_chunks: int = 30,
+                page_names: Optional[List[str]] = None) -> Package:
         """一定先压缩，再按压缩后的大小决定打包方式。
 
+        page_names 是调用方**现场扫网页对话 DOM** 得到的附件文件名列表：
+        只有出现在那里的附件才算"模型已经看到过"。传 IDE 重放的消息文本
+        是不行的——那只能证明客户端又把文件名发回中转一次。
+
         build_text(effective_messages, protocol_in_body) 由调用方提供
-        （它才知道 ToolRoundBuilder 的那些细节），本类只管顺序与判定。
-        protocol_in_body=False 时拼出来的文本不含工具表——用于
-        "附件里已带工具表、输入框只要短模板"的轮次。"""
+        （它才知道 ToolRoundBuilder 的那些细节），本类只管顺序与判定。"""
         upload_cfg = upload_cfg or {}
         original = build_text(messages, True)
         pkg = Package(body=original, original=original, fk=ckey,
@@ -303,7 +312,7 @@ class PromptPackager:
 
         # —— 1. 压缩（只在续聊同一对话时有意义）——
         if continuation and ckey:
-            prev, ref_note, src = self.find_baseline(ckey, history_text)
+            prev, ref_note, src = self.find_baseline(ckey, page_names)
             pkg.baseline_source = src
             pkg.ref_note = ref_note
             if prev:
@@ -405,7 +414,35 @@ class PromptPackager:
         names = [x for x in names if x]
         if ckey and names:
             self.attachments[ckey] = {"names": names[:6],
-                                      "label": "、".join(names[-2:])}
+                                      "label": "、".join(names[-2:]),
+                                      "mode": "attachment-pending"}
+
+    def mark_delivery(self, ckey: str, mode: str) -> None:
+        """记下这一轮内容**实际**是以什么方式落进网页会话的：
+        attachment（附件确实在页面上）、chunked（分片正文）、text（直输正文）。
+
+        只有 attachment 需要下一轮在页面上复核：上传被站点静默拒绝时
+        我们也曾"以为"附件已经交付，占位符于是指向 AI 根本看不到的文件
+        （2026-11-06 现场：本地 uploads 存着 8 个文件，网页对话里出现 0 次），
+        表现就是"找不到附件、答非所问"。"""
+        if not ckey:
+            return
+        info = self.attachments.setdefault(ckey, {"names": [], "label": ""})
+        info["mode"] = mode
+
+    def attachments_on_page(self, ckey: str,
+                            page_names: List[str]) -> Tuple[bool, List[str]]:
+        """该对话登记的附件此刻是否真在页面上。
+
+        没有 mode 字段的老记录（本次改动之前写的 pack_state.json）按
+        "待复核"处理：登记过附件名却不知道怎么交付的，宁可要求页面确认。"""
+        info = self.attachments.get(ckey) or {}
+        names = [str(n) for n in (info.get("names") or []) if n]
+        mode = info.get("mode") or ("attachment-pending" if names else "text")
+        if mode not in ("attachment", "attachment-pending") or not names:
+            return True, names
+        hit = [n for n in names if n in set(page_names or [])]
+        return bool(hit), hit
 
     def record(self, ckey: str, pkg: Package) -> None:
         """发送成功后把**交付原文**（压缩前）当基准。

@@ -138,7 +138,7 @@ class TestBaselineKeying:
                                tools=TOOLS, think_hint=False,
                                continuation=True, ckey="chatgpt.com:convX",
                                upload_cfg={"max_prompt_length": 2000})
-        assert pkg.compressed and pkg.baseline_source in ("memory", "state")
+        assert pkg.compressed and pkg.baseline_source == "delivery"
 
     def test_different_conversation_never_shares_baseline(self, packager):
         packager.baseline["chatgpt.com:convA"] = "只属于 A 对话的内容" + ("A" * 5000)
@@ -159,8 +159,8 @@ class TestBaselineKeying:
         packager.record("chatgpt.com:convR", pkg)
         again = pp.PromptPackager(upload_dir=str(packager.upload_dir),
                                   state_file=packager.state_file)
-        prev, _note, src = again.find_baseline("chatgpt.com:convR")
-        assert prev == text and src in ("memory", "state")
+        prev, _note, src = again.find_baseline("chatgpt.com:convR", [])
+        assert prev == text and src == "delivery", "重启后同一对话还要能继续压"
 
     def test_invalidate_clears_all_delivered_knowledge(self, packager):
         packager.baseline["chatgpt.com:convC"] = "旧基准"
@@ -174,26 +174,67 @@ class TestBaselineKeying:
 # ---------------- 附件内容参与比对 ----------------
 
 class TestAttachmentBaseline:
-    def test_registered_attachment_used_as_baseline(self, packager):
-        """上一轮是作为附件交付的（输入框只有"请阅读文件 xxx"短模板），
-        基准必须从 uploads 里把那个文件的原文读回来"""
+    """附件参与压缩比对的前提是：**页面上下文里真的有这个附件**。"""
+
+    CK = "chatgpt.com:convC"
+
+    def test_page_attachment_is_read_back_as_baseline(self, packager):
         body = REAL_HEAD + "[user]\n" + ("附件里的旧内容。\n" * 3000)
         f = packager.upload_dir / "prompt_1793900000_abcdef.txt"
         f.write_text(body, encoding="utf-8")
-        packager.attachments["chatgpt.com:convC"] = {"names": [f.name],
-                                     "label": f.name}
-        prev, note, src = packager.find_baseline("chatgpt.com:convC")
-        assert prev == body and src == "attach" and f.name in note
+        prev, note, src = packager.find_baseline(self.CK, [f.name])
+        assert prev == body and src == "page-attachment" and f.name in note
 
-    def test_history_names_rescue_after_state_loss(self, packager):
-        """登记丢了（进程重启且状态文件被清），但对话历史里写着文件名 → 照样比对"""
-        body = REAL_HEAD + "[user]\n" + ("历史附件内容。\n" * 2000)
+    def test_name_only_in_ide_history_is_not_evidence(self, packager):
+        """用户要求现场扫上下文，不能靠 IDE 重放的文本认文件名。
+
+        真实场景：上传被站点拒绝后回退，uploads 里留下一堆 prompt_*.txt，
+        客户端下一轮又把"请阅读文件 prompt_xxx.txt"这句原样重放回来。
+        文本里有名字只证明客户端又发了一次名字给中转，网页会话里根本没有
+        那个附件——按它比对，占位符就指向 AI 看不到的文件，表现为
+        "找不到附件、答非所问"（2026-11-06 实测：本地 8 个文件，
+        网页对话里出现 0 次）。"""
+        body = REAL_HEAD + "[user]\n" + ("残档内容。\n" * 2000)
         f = packager.upload_dir / "prompt_1793900001_beef01.txt"
         f.write_text(body, encoding="utf-8")
-        history = ("请阅读我上传的文件 prompt_1793900001_beef01.txt，"
-                   "并按照文件中的要求完成任务")
-        prev, note, src = packager.find_baseline("chatgpt.com:convC", history)
-        assert prev == body and src == "history"
+        prev, _note, src = packager.find_baseline(self.CK, [])
+        assert prev == "", "页面没有这个附件，绝不能当基准"
+
+    def test_registered_but_missing_attachment_discards_baseline(self, packager):
+        """上一轮"以为"用附件交付了：附件不在页面上时基准作废、全量重发。
+
+        站点静默拒绝上传（实测该账号 input[type=file] 全为禁用态）时，
+        upload_done 复查可能当时通过、下一轮上下文里已经没有它；
+        继续拿那份内容当"已交付"省略，AI 就两头都看不到。"""
+        body = REAL_HEAD + "[user]\n" + ("附件交付的内容。\n" * 2000)
+        f = packager.upload_dir / "prompt_1793900002_cccccc.txt"
+        f.write_text(body, encoding="utf-8")
+        pkg = pp.Package(original=body, body=body)
+        packager.attachments[self.CK] = {"names": [f.name], "label": f.name,
+                                         "mode": "attachment"}
+        packager.baseline[self.CK] = body
+        prev, _note, src = packager.find_baseline(self.CK, [])
+        assert prev == "" and src == ""
+        assert self.CK not in packager.baseline, "失效基准要被清掉，别再反复误判"
+
+    def test_attachment_still_on_page_keeps_baseline(self, packager):
+        body = REAL_HEAD + "[user]\n" + ("附件交付且仍在页面上。\n" * 2000)
+        f = packager.upload_dir / "prompt_1793900003_dddddd.txt"
+        f.write_text(body, encoding="utf-8")
+        packager.attachments[self.CK] = {"names": [f.name], "label": f.name,
+                                         "mode": "attachment"}
+        packager.baseline[self.CK] = body
+        prev, _note, src = packager.find_baseline(self.CK, [f.name])
+        assert prev == body and src == "delivery"
+
+    def test_text_delivery_needs_no_page_attachment_check(self, packager):
+        """正文/分片交付的基准不依赖附件复核（内容就在消息里）"""
+        body = REAL_HEAD + "[user]\n" + ("正文交付。\n" * 2000)
+        packager.attachments[self.CK] = {"names": [], "label": "",
+                                         "mode": "text"}
+        packager.baseline[self.CK] = body
+        prev, _note, src = packager.find_baseline(self.CK, [])
+        assert prev == body and src == "delivery"
 
     def test_unattributed_recent_upload_is_not_a_baseline(self, packager):
         """uploads 里"最近的文件"不能当基准：文件本身不带对话标识。
@@ -203,14 +244,22 @@ class TestAttachmentBaseline:
         body = REAL_HEAD + "[user]\n" + ("别的对话的内容。\n" * 2000)
         f = packager.upload_dir / "prompt_1793900002_aaaaaa.txt"
         f.write_text(body, encoding="utf-8")
-        prev, _note, src = packager.find_baseline("chatgpt.com:convC")
+        prev, _note, src = packager.find_baseline(self.CK, [])
         assert prev == "", "不认识这个文件属于本对话，就不许拿来省略"
 
     def test_missing_files_degrade_to_full_send(self, packager):
-        """文件已被启动清理或换机：读不到就老实全量发送，绝不凭空省略"""
-        packager.attachments["chatgpt.com:convC"] = {"names": ["prompt_9_zzz.txt"], "label": "z"}
-        prev, _note, src = packager.find_baseline("chatgpt.com:convC")
+        """页面上有附件名，但本地文件已被清理或换机：读不到就全量发送"""
+        packager.attachments[self.CK] = {"names": ["prompt_9_zzz.txt"],
+                                         "label": "z", "mode": "attachment"}
+        prev, _note, src = packager.find_baseline(
+            self.CK, ["prompt_1793900009_eeeeee.txt"])
         assert prev == ""
+
+    def test_garbage_page_names_are_ignored(self, packager):
+        """页面扫回来的必须是我们的文件名格式，其它一律不用"""
+        prev, _n, src = packager.find_baseline(
+            self.CK, ["报告.pdf", "notes.txt", "prompt_1_a.txt"])
+        assert prev == "" and src == ""
 
     def test_real_218k_sample_compresses_against_previous_round(self, packager):
         """用现场那份真实 218KB 附件的头部当"上一轮已交付"，
@@ -330,6 +379,90 @@ class TestConversationIdParsing:
         assert pp.conv_key("ChatGPT.com",
                            "https://chatgpt.com/c/x1") == "chatgpt.com:x1"
         assert pp.conv_key("chatgpt.com", "https://chatgpt.com/") == "chatgpt.com"
+
+
+class TestPageScan:
+    """页面附件扫描器：判"上下文里有没有附件"的唯一信息来源"""
+
+    def test_returns_only_names_found_on_page(self):
+        import browser_core as bc
+
+        class T:
+            def run_js(self, script, *a, **k):
+                return ["prompt_1793968220_6429e3.txt", "", None,
+                        "prompt_1793970921_3b8414.txt"]
+
+        assert bc.attachment_names_in_page(T()) == [
+            "prompt_1793968220_6429e3.txt", "prompt_1793970921_3b8414.txt"]
+
+    def test_scan_failure_is_empty_not_a_guess(self):
+        """扫不到就返回空表 → 不压缩，全量发送。绝不用"大概传过"当依据"""
+        import browser_core as bc
+
+        class T:
+            def run_js(self, script, *a, **k):
+                raise RuntimeError("页面被刷新")
+
+        assert bc.attachment_names_in_page(T()) == []
+
+        class T2:
+            def run_js(self, script, *a, **k):
+                return None
+
+        assert bc.attachment_names_in_page(T2()) == []
+
+    def test_js_targets_leaf_nodes_only(self):
+        """只认叶子节点：否则同一个文件名会被祖先节点重复报出来"""
+        import browser_core as bc
+        assert "childElementCount" in bc._ATTACH_NAMES_IN_PAGE_JS
+        assert "prompt_" in bc._ATTACH_NAMES_IN_PAGE_JS
+
+    def test_packager_ignores_non_attachment_names(self, packager):
+        """站点正文里什么文本都有：只有我们自己的落盘文件名格式才认"""
+        prev, _n, src = packager.find_baseline(
+            "chatgpt.com:convC",
+            ["上传失败", "prompt_1.txt", "报告.pdf", "notes.txt"])
+        assert prev == "" and src == ""
+
+
+class TestRealSampleEndToEnd:
+    """用现场那份真实 218KB 附件跑完整两轮的语义（不发网页，只跑判定链）"""
+
+    def test_second_round_compresses_and_stays_direct(self, packager):
+        import browser_core as bc
+        first = REAL_HEAD + "[user]\n" + ("同一份长历史。\n" * 6000)
+        pkg1 = packager.prepare(
+            build_text=lambda m, t: first, messages=_msgs(first),
+            tools=TOOLS, think_hint=False, continuation=False,
+            ckey="chatgpt.com:convE", upload_cfg={"max_prompt_length": 2000,
+                                                  "max_file_size": 100_000})
+        assert pkg1.strategy == pp.STRATEGY_FILE, "首轮原文大 → 附件"
+        name = "prompt_1793970921_3b8414.txt"
+        (packager.upload_dir / name).write_text(first, encoding="utf-8")
+        packager.attach_payload("chatgpt.com:convE", pkg1,
+                               {"file_path": "x", "filename": name},
+                               pp.STRATEGY_FILE)
+        packager.mark_delivery("chatgpt.com:convE", "attachment")
+        packager.record("chatgpt.com:convE", pkg1)
+
+        # 第二轮：IDE 重放同一份历史 + 新增一条工具结果
+        second = first + "\n[assistant]\n已执行\n[tool_result name=exec]\n节点在线\n"
+        pkg2 = packager.prepare(
+            build_text=lambda m, t: second, messages=_msgs(second),
+            tools=TOOLS, think_hint=False, continuation=True,
+            ckey="chatgpt.com:convE", page_names=[name],
+            upload_cfg={"max_prompt_length": 2000, "max_file_size": 100_000})
+        assert pkg2.compressed and pkg2.baseline_source == "delivery"
+        assert len(pkg2.body) < len(second) / 5
+
+        # 附件其实没落地（页面扫不到）→ 基准作废、这一轮绝不省略
+        pkg3 = packager.prepare(
+            build_text=lambda m, t: second, messages=_msgs(second),
+            tools=TOOLS, think_hint=False, continuation=True,
+            ckey="chatgpt.com:convE", page_names=[],
+            upload_cfg={"max_prompt_length": 2000, "max_file_size": 100_000})
+        assert pkg3.compressed is False
+        assert pkg3.body == second, "页面没有附件时，必须整份发送"
 
 
 if __name__ == "__main__":
