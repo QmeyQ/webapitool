@@ -9,23 +9,32 @@ from browser_core import BrowserCore, WorkflowError, ElementNotFoundError
 
 
 class FakeTab:
-    def __init__(self, reject_over=8000):
+    def __init__(self, reject_over=8000, stale_reject=False):
         self.url = 'https://chatgpt.com/c/test'
         self.reject_over = reject_over
         self.clicked = []
+        # True 模拟 2026-11-06 现场：会话里挂着一块属于**上一轮**的
+        # "消息过长"拒收面板（不含本片分片头），中转不能把它当成
+        # 我们这一片被拒，否则就是无限降半原地重发
+        self.stale_reject = stale_reject
 
     def run_js(self, js, *a):
-        # 拒收检测 JS：根据最近填充的长度决定是否拒收
+        # 拒收检测 JS：命中时返回 {k: turn 标识, ours: 面板是否在说本片}
         last = getattr(self, '_last_fill_len', 0)
         if '你提交的消息过长' in js or 'data-turn-key' in js:
-            return last > self.reject_over
+            if last > self.reject_over:
+                if self.stale_reject:
+                    return {"k": "turn-old", "ours": 0}
+                return {"k": f"turn-{len(self.clicked) or last}", "ours": 1}
+            return {"k": "", "ours": 0}
         return False
 
 
 class FakeExecutor:
     def __init__(self, fail_click_on=None, fail_verify_on=None,
-                 reject_over=8000):
-        self.tab = FakeTab(reject_over=reject_over)
+                 reject_over=8000, stale_reject=False):
+        self.tab = FakeTab(reject_over=reject_over,
+                           stale_reject=stale_reject)
         self.filled = []      # 实际写入输入框的（含被拒收的）
         self.sent = []        # 点击后真正进入会话的（拒收的不算）
         self.clicked = []
@@ -124,6 +133,32 @@ def test_reject_resplits_without_loss():
     assert len(ex.sent) >= 3
     # 被拒收的那次 fill 不应进入会话
     assert all(len(t) <= 8000 + 200 for t in ex.sent)
+
+
+def test_stale_reject_panel_is_not_attributed_to_our_chunk():
+    """真实事故（2026-11-06 18:43）：会话里那块"消息过长"面板属于上一轮，
+    代码把它当成我们这一片被拒 → 降半到底后原地重发十几次、346s 才失败，
+    白烧十几条真实消息。现在要求面板所在 turn 里含本片分片头才算拒收。"""
+    prompt = '段落内容 ' * 4000          # 20000 字符 → 2 片
+    ex = FakeExecutor(reject_over=0, stale_reject=True)  # 每片都命中旧面板
+    _run_chunks(prompt, ex=ex, limit=12000)
+    assert len(ex.clicked) == len(ex.filled), (
+        f"每片只该发一次：填充 {len(ex.filled)} 片却点击 {len(ex.clicked)} 次"
+        "（事故里是十几次）")
+    assert len(ex.filled) == 2
+    assert len(set(t[:40] for t in ex.filled)) == len(ex.filled), \
+        "不该出现同一片反复重填"
+
+
+def test_reject_reshalving_is_capped():
+    """降半重切最多 2 次：每次重切都要真的发消息，无上限就是无底洞"""
+    prompt = '段落内容 ' * 4000
+    ex = FakeExecutor(reject_over=0)     # 任何长度都被真拒（ours=1）
+    with pytest.raises(WorkflowError) as ei:
+        _run_chunks(prompt, ex=ex, limit=12000)
+    msg = str(ei.value)
+    assert '降半重切' in msg or '降到下限' in msg
+    assert len(ex.clicked) <= 6, f"实际点击 {len(ex.clicked)} 次"
 
 
 def test_chunk_limit_param_overrides_default():

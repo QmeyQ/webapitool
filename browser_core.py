@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from DrissionPage import ChromiumPage
 
 import send_verify
+import chrome_launcher
 
 
 DIRECT_TOOL_DEBUG = False
@@ -294,18 +295,33 @@ for (var n = 0; n < btns.length; n++) {
 }
 if (hits.length) { out.login_ctas = hits.length; out.btn_texts = hits.slice(0, 3).join('|'); }
 
-// 站点自身的"上下文窗口已达上限"横幅：必须同时命中「新聊天类按钮」和
-// 该按钮近邻容器里的上限文案。只看文案会把我们自己的 prompt（正文里常出现
-// "上下文"）和侧栏常驻的"新聊天"按钮误判成上限，只看按钮更不行。
 // 站点自身的提示区语料：composer 页脚 + alert/status + 生成指示区域。
-// 不能用整页 innerText 找受限文案——我们自己的 prompt 里就带 rate limit
-// 之类的日志文本，会把正常轮次误判成账号受限（2026-11-06 实测 tail 落在
-// 对话正文里，banner 却在轮内/页脚，位置不固定）。
+// 必须剔除对话正文容器——2026-11-06 实测 ChatGPT 的转录区
+// div.thread-scroll-container 自带 aria-live/role=region，也就是说
+// "你说：…／ChatGPT 说：…"（= 我们自己发出的原文）会被当成站点提示搬进
+// banner。我们的 prompt 里常带 rate limit、usage limit、请稍后再试
+// （中转把报错日志原样贴进对话），拿这种语料判定就会把好账号登记成
+// "受限"并打进一小时冷却。
+function inMsg(e) {
+  if (!e) return false;
+  var cls = (typeof e.className === 'string' ? e.className : '');
+  if (/thread-scroll-container|thread-transcript/i.test(cls)) return true;
+  if (e.closest && e.closest(
+      '[data-turn-key],[data-message-id],article,[class*="markdown" i],[class*="prose" i]')) {
+    return true;
+  }
+  // 装着两条以上 turn 的就是转录列表本身（提示横幅不会）
+  if (e.querySelectorAll && e.querySelectorAll('[data-turn-key]').length >= 2) {
+    return true;
+  }
+  return false;
+}
 var bannerBits = [];
 var bs = document.querySelectorAll(
   '[role="alert"],[role="status"],[aria-live="polite"],[aria-live="assertive"],'
   + 'form div[class*="footer" i],div[class*="thread-scroll" i] > div[class*="footer" i]');
 for (var z = 0; z < bs.length && bannerBits.length < 8; z++) {
+  if (inMsg(bs[z])) { continue; }
   var tz = (bs[z].innerText || '').replace(/\s+/g, ' ').trim();
   if (tz.length > 8 && tz.length < 400) { bannerBits.push(tz); }
 }
@@ -314,6 +330,9 @@ out.head = (bt || '').slice(0, 300);
 out.tail = (bt || '').slice(-1500);
 out.context_full = 0;
 out.limit_text = '';
+// "上下文窗口已达上限"横幅：必须同时命中「新聊天类按钮」和该按钮近邻容器里的
+// 上限文案。只看文案会把我们自己的 prompt（正文里常出现"上下文"）和侧栏常驻的
+// "新聊天"按钮误判成上限，只看按钮更不行。
 function nearLimitText(e) {
   var n = e;
   for (var d = 0; d < 6 && n; d++) {
@@ -342,7 +361,11 @@ function nearUsageText(e) {
   var n2 = e;
   for (var d = 0; d < 6 && n2; d++) {
     var t = (n2.innerText || '').replace(/\s+/g, ' ').trim();
-    if (t.length > 0 && t.length < 400) {
+    // 对话回显（"你说：…"/"ChatGPT 说：…"）里就是我们自己发的原文，不能当语料；
+    // 这里不能直接 inMsg() 一刀切——站点的受限提示本身就长在 turn 里，
+    // 旁边挂着「重试」按钮，切掉就把真提示也切没了；长度上限已经
+    // 挡掉了整段转录，剩下的靠"只认无歧义措辞"这条（STRONG 表）
+    if (t.length > 0 && t.length < 400 && !/你说：|You said:|ChatGPT 说：/i.test(t)) {
       out.limit_hits.push(t.slice(0, 200));
     }
     n2 = n2.parentElement;
@@ -5306,10 +5329,20 @@ class BrowserCore:
                 logger.info(f"[Instance] 显式使用代理 {proxy}"
                             "（服务上下文读不到用户系统代理）")
             args.append(f"https://{default_site}")
-            subprocess.Popen(
-                args,
-                creationflags=subprocess.DETACHED_PROCESS
-                | subprocess.CREATE_NEW_PROCESS_GROUP)
+            # 服务在 Session 0，直接 Popen 出来的 Chrome 窗口没人看得见
+            # （端口通、仪表盘"运行中"，但没人能登录）——起进用户自己的会话
+            vis_ok, vis_msg = chrome_launcher.launch_in_user_session(
+                args, cwd=str(Path(__file__).resolve().parent))
+            if vis_ok:
+                logger.info(f"[Instance] {vis_msg}")
+            else:
+                logger.warning(
+                    f"[Instance] 未能起在用户桌面（{vis_msg}），"
+                    "退回当前会话启动：窗口不可见，profile 无法交互登录")
+                subprocess.Popen(
+                    args,
+                    creationflags=subprocess.DETACHED_PROCESS
+                    | subprocess.CREATE_NEW_PROCESS_GROUP)
             logger.info(f"[Instance] 已自动启动账号实例 :{port} "
                         f"profile={udd}")
             for _ in range(30):
@@ -6844,6 +6877,7 @@ class BrowserCore:
         if i:
             logger.info(f"[Chunk] 断点续传：本会话已送达 {i} 片，"
                         f"从第 {i + 1}/{n} 片继续（已发内容不重发）")
+        resplit_rounds = 0
         while i < len(chunks):
             ch = chunks[i]
             if self._should_stop_checker():
@@ -6925,24 +6959,62 @@ class BrowserCore:
                     f"turn {_late.get('turn_count')}），继续")
             # 检测 chatgpt 拒收（新版 UI 在消息 turn 内渲染错误面板
             # "你提交的消息过长，请编辑后重新发送"，消息未进入对话）。
-            # 只查最后一个 turn：会话历史里的旧拒收面板会让全文检测
-            # 永远命中（假阳性 → 无限降半重发）
+            # 关键是"这个面板是不是在说我们刚发的这一片"：面板长在哪个 turn
+            # 就看那个 turn 里有没有本片的分片头。2026-11-06 实测——上一轮
+            # 留下的拒收面板一直挂在最后一个 turn 里，代码把它当成本片被拒，
+            # 降半到底 2000 后原地重发十几次，346s 才失败，白烧十几条真实消息。
             time.sleep(2.0)
-            rejected = False
+            reject_key, reject_ours = "", False
             try:
-                rejected = bool(executor.tab.run_js(
+                _rj = executor.tab.run_js(
                     'const ts = document.querySelectorAll('
                     '"[data-turn-key]");'
-                    'const t = ts.length ? ts[ts.length - 1] : null;'
-                    'return !!t && (t.innerText || "").includes('
-                    '"你提交的消息过长");'))
+                    'const probe = %s;'
+                    'for (let i = ts.length - 1; i >= 0 && i >= ts.length - 3; i--) {'
+                    '  const tx = ts[i].innerText || "";'
+                    '  if (tx.indexOf("你提交的消息过长") >= 0) {'
+                    '    return {k: ts[i].getAttribute("data-turn-key") || "unknown",'
+                    '            ours: tx.indexOf(probe) >= 0 ? 1 : 0};'
+                    '  }'
+                    '}'
+                    'return {k: "", ours: 0};' % json.dumps(
+                        f"[长消息分片 {i}/{n}]"))
+                if isinstance(_rj, dict):
+                    reject_key = str(_rj.get("k") or "")
+                    reject_ours = bool(_rj.get("ours"))
+                elif _rj:
+                    reject_key, reject_ours = str(_rj), True
             except Exception:
                 pass
-            if rejected:
+            if reject_key and not reject_ours:
+                logger.warning(
+                    f"[Chunk] 页面上的「消息过长」面板属于上一轮"
+                    f"（turn {reject_key}，不含本片分片头），"
+                    f"本片 {i}/{n} 按已送达继续，不降半重发")
+                reject_key = ""
+            if reject_key and reject_key == getattr(self, "_chunk_reject_key", None):
+                raise WorkflowError(
+                    f"[Chunk] 站点持续显示同一条"
+                    f"「你提交的消息过长」（turn {reject_key}），"
+                    f"分片 {i}/{n}（{len(ch)} 字符）无法送达——"
+                    "原地重发不会成功，请新起对话或改用文件上传")
+            if reject_key:
+                self._chunk_reject_key = reject_key
+                if resplit_rounds >= 2:
+                    raise WorkflowError(
+                        f"[Chunk] 已降半重切 {resplit_rounds} 次仍被站点拒收"
+                        f"（最后一片 {len(ch)} 字符），停止发送以免继续消耗额度")
+                resplit_rounds += 1
                 new_limit = max(2000, len(ch) // 2)
+                if new_limit >= len(ch):
+                    raise WorkflowError(
+                        f"[Chunk] 分片已降到下限 {new_limit} 字符仍被拒收"
+                        f"（这片 {len(ch)} 字符），网页端承载不了当前内容，"
+                        "请改用文件上传或缩减上下文")
                 logger.warning(
                     f"[Chunk] 分片 {i}/{n}（{len(ch)} 字符）被拒收"
-                    f"（消息过长），减半至 {new_limit} 重新切分")
+                    f"（消息过长），减半至 {new_limit} 重新切分"
+                    f"（第 {resplit_rounds} 次）")
                 # ch 本身不含分片头（fill 时才拼 head），直接重切；
                 # 此前误剥 len(head) 导致每轮拒收丢头 40 字符内容
                 re_split = _split_prompt_chunks(
@@ -6951,6 +7023,7 @@ class BrowserCore:
                 n = len(chunks)
                 i -= 1
                 continue
+            self._chunk_reject_key = None
             logger.info(f"[Chunk] 分片 {i}/{n} 已发送"
                         f"（{len(head + ch)} 字符）")
             if fk:

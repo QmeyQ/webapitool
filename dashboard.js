@@ -1084,7 +1084,8 @@ createApp({
                     method: 'POST',
                     body: JSON.stringify({ name: this.newInstanceName.trim() })
                 });
-                this.notify(data.message || '浏览器窗口已启动，请在弹出的窗口里登录账号', 'success');
+                this.notify(data.message || '浏览器窗口已启动，请在弹出的窗口里登录账号',
+                    data.window_visible === false ? 'error' : 'success');
                 this.newInstanceName = '';
                 await this.loadInstances(true);
             } catch (error) {
@@ -1094,10 +1095,14 @@ createApp({
             }
         },
 
-        async launchInstance(inst) {
+        async launchInstance(inst, takeOver) {
             try {
-                const data = await this.apiRequest(`/api/instances/${encodeURIComponent(inst.name)}/launch`, { method: 'POST' });
-                this.notify(data.message || `已启动 ${inst.name}`, 'success');
+                // takeOver：端口已通但窗口开在服务会话里（看不见、没法登录），
+                // 让后端结束旧进程并在当前用户桌面重开一个
+                const q = takeOver ? '?take_over=true' : '';
+                const data = await this.apiRequest(`/api/instances/${encodeURIComponent(inst.name)}/launch${q}`, { method: 'POST' });
+                this.notify(data.message || `已启动 ${inst.name}`,
+                    data.window_visible === false ? 'error' : 'success');
                 await this.loadInstances(true);
             } catch (error) {
                 this.notify('启动失败: ' + error.message, 'error');
@@ -1118,16 +1123,20 @@ createApp({
         async clearCreditRecord(inst, cs) {
             try {
                 let url = `/api/credit-state?domain=${encodeURIComponent(cs.domain)}&port=${inst.port}`;
-                const isTooLong = cs.kind === 'toolong';
-                if (isTooLong) {
-                    url += `&kind=toolong`;
+                // toolong / limited 是另两类记录，清除接口靠 kind 区分
+                const kind = (cs.kind === 'toolong' || cs.kind === 'limited')
+                    ? cs.kind : '';
+                if (kind) {
+                    url += `&kind=${kind}`;
                 }
                 // 指定模型只清该模型记录；不传清该账号该站点全部模型
                 if (cs.model) {
                     url += `&model=${encodeURIComponent(cs.model)}`;
                 }
                 await this.apiRequest(url, { method: 'DELETE' });
-                this.notify(`${inst.name} 的 ${cs.domain}${cs.model ? ' · ' + cs.model : ''} ${isTooLong ? '消息过长标记' : '积分记录'}已清除，该账号立即可用`, 'success');
+                const what = kind === 'toolong' ? '消息过长标记'
+                    : kind === 'limited' ? '受限冷却' : '积分记录';
+                this.notify(`${inst.name} 的 ${cs.domain}${cs.model ? ' · ' + cs.model : ''} ${what}已清除，该账号立即可用`, 'success');
                 await this.loadInstances(true);
             } catch (error) {
                 this.notify('清除失败: ' + error.message, 'error');

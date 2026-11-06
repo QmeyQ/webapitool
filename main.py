@@ -69,7 +69,7 @@ import queue
 import threading
 import re
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 from contextlib import asynccontextmanager
 from collections import deque
 import threading
@@ -84,6 +84,7 @@ from browser_core import (get_browser, BrowserConnectionError,
                           CREDIT_EXHAUSTED_RE, get_site_model_candidates,
                           PageUnavailableError, TooLongError)
 from site_strategy import account_state as site_account_state
+import chrome_launcher
 from config_engine import config_engine, ConfigConstants
 from request_manager import request_manager, RequestContext, RequestStatus, watch_client_disconnect
 from data_models import (
@@ -1564,6 +1565,46 @@ def _debug_port_alive(port: int) -> bool:
         s.close()
 
 
+def _launch_chrome_window(argv: List[str], port: int, name: str,
+                          profile_dir: str) -> tuple:
+    """启动账号 Chrome，并如实回报窗口到底可不可见。
+
+    服务运行在 Session 0（nssm + LocalSystem），直接 Popen 出来的 Chrome
+    端口通、进程在，但窗口画在没人看得见的服务桌面上——仪表盘因此一直在
+    说假话（"运行中/窗口已弹出"），而用户永远没法在这些 profile 里登录。
+    优先用 CreateProcessAsUser 起进当前登录用户的会话。
+    返回 (ok, 可见性, 说明)。"""
+    vis, msg = chrome_launcher.launch_in_user_session(
+        argv, cwd=str(Path(__file__).resolve().parent))
+    if vis:
+        return True, True, msg
+    logger.warning(f"[Instance] {name} 未能起在用户桌面（{msg}），"
+                   "退回当前会话启动：窗口不可见")
+    try:
+        subprocess.Popen(
+            argv, creationflags=subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP)
+    except Exception as e:
+        return False, False, f"启动失败: {e}"
+    return True, False, (f"已在服务会话启动（端口 {port}），"
+                         f"但窗口不可见，无法交互登录：{msg}")
+
+
+def _instance_window_visibility(port: int) -> dict:
+    """单个端口的窗口可见性（供启动接口就地判断用）"""
+    return _window_status([port]).get(int(port),
+                                      {"pid": None, "session": None,
+                                       "visible": False})
+
+
+def _window_status(ports: List[int]) -> dict:
+    """每个端口的窗口到底可不可见（见 chrome_launcher.window_status）。
+
+    服务在 Session 0，它自己拉起的 Chrome 端口通、进程在，但窗口在
+    服务桌面上，用户看不见也登录不了；只报"运行中"就是在说假话。"""
+    return chrome_launcher.window_status(ports)
+
+
 @app.get("/api/instances")
 async def get_instances(authenticated: bool = Depends(verify_auth)):
     """多账号实例列表（含端口可达状态 + 各配置站点积分状态，全局跨站点）。"""
@@ -1572,6 +1613,7 @@ async def get_instances(authenticated: bool = Depends(verify_auth)):
         {"name": "main", "port": cfg.get("DEFAULT_PORT", 9222)}]
     sites = list(config_engine.sites.keys())
     now = time.time()
+    _wins = _window_status([int(i.get("port") or 0) for i in instances])
     out = []
     for inst in instances:
         port = int(inst.get("port") or 0)
@@ -1610,6 +1652,8 @@ async def get_instances(authenticated: bool = Depends(verify_auth)):
             "port": port,
             "user_data_dir": inst.get("user_data_dir"),
             "alive": _debug_port_alive(port),
+            "window": _wins.get(port) or {"pid": None, "session": None,
+                                          "visible": False},
             "credit_sites": credit_sites,
             "limited_sites": limited_sites,
         })
@@ -1667,21 +1711,27 @@ async def create_instance(request: Request,
         if not chrome:
             raise HTTPException(status_code=500,
                                 detail="未找到 Chrome/Edge，请先安装 Chrome")
-        subprocess.Popen(
-            [chrome, f"--remote-debugging-port={port}",
-             f"--user-data-dir={profile_dir}",
-             "--no-first-run", "--no-default-browser-check",
-             *_chrome_proxy_args(),
-             f"https://{default_site}"],
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+        _argv = [chrome, f"--remote-debugging-port={port}",
+                 f"--user-data-dir={profile_dir}",
+                 "--no-first-run", "--no-default-browser-check",
+                 *_chrome_proxy_args(), f"https://{default_site}"]
+        ok, visible, msg = _launch_chrome_window(_argv, port, name,
+                                                 profile_dir)
+        if not ok:
+            raise HTTPException(status_code=500, detail=msg)
         inst = {"name": name, "port": port, "user_data_dir": profile_dir}
         instances.append(inst)
         _write_browser_config_raw(cfg)
-        logger.info(f"[Instance] 新增账号实例 {name}:{port}，profile={profile_dir}，"
-                    f"已打开 https://{default_site} 供登录")
+        logger.info(f"[Instance] 新增账号实例 {name}:{port}，"
+                    f"profile={profile_dir}，{msg}")
         return {"status": "success", "instance": {**inst, "alive": True},
-                "message": f"浏览器窗口已启动（{name}, 端口 {port}），"
-                           f"请在弹出的窗口里登录 {default_site} 账号"}
+                "window_visible": visible,
+                "message": (f"浏览器窗口已启动（{name}, 端口 {port}），"
+                            f"请在弹出的窗口里登录 {default_site} 账号"
+                            if visible else
+                            f"实例已启动（{name}, 端口 {port}）但窗口不可见——"
+                            f"{msg}。请在自己已登录的桌面里手动启动一次并登录，"
+                            f"profile 会记住登录态")}
     except HTTPException:
         raise
     except Exception as e:
@@ -1690,8 +1740,13 @@ async def create_instance(request: Request,
 
 
 @app.post("/api/instances/{name}/launch")
-async def launch_instance(name: str, authenticated: bool = Depends(verify_auth)):
-    """启动已配置但未运行的账号浏览器窗口。"""
+async def launch_instance(name: str, take_over: bool = False,
+                          authenticated: bool = Depends(verify_auth)):
+    """启动已配置但未运行的账号浏览器窗口。
+
+    端口已通但窗口不可见时（服务在 Session 0 里起的那种），默认只说实话、
+    不动它——那可能是正在跑请求的账号；带 take_over=true 才结束旧进程、
+    按当前用户的会话重起一个能看见、能登录的窗口。"""
     try:
         cfg = _read_browser_config_raw()
         inst = next((i for i in (cfg.get("INSTANCES") or [])
@@ -1699,8 +1754,30 @@ async def launch_instance(name: str, authenticated: bool = Depends(verify_auth))
         if not inst:
             raise HTTPException(status_code=404, detail=f"实例 {name} 不存在")
         port = int(inst.get("port") or 0)
-        if _debug_port_alive(port):
-            return {"status": "success", "message": f"{name} 已在运行（端口 {port}）"}
+        _w = _instance_window_visibility(port)
+        if _w.get("visible"):
+            return {"status": "success", "window_visible": True,
+                    "message": f"{name} 已在运行（端口 {port}，窗口可见）"}
+        if _w.get("pid"):
+            if not take_over:
+                return {"status": "success", "window_visible": False,
+                        "message": (f"{name} 的浏览器进程在（端口 {port}，"
+                                    f"pid={_w['pid']}，会话={_w['session']}），"
+                                    "但窗口不在你的桌面上——服务以 LocalSystem "
+                                    "运行在 Session 0，那里起的窗口看不见，"
+                                    "也就无法登录。要换成一个可见窗口，"
+                                    "请带 take_over=true 再调一次"
+                                    "（会重启该账号窗口，正在跑的请求会中断）")}
+            logger.warning(
+                f"[Instance] 收回不可见窗口 {name}(:{port}) "
+                f"pid={_w['pid']} 会话={_w['session']}，准备重起到用户会话")
+            if not chrome_launcher.kill_pid(_w["pid"]):
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"无法结束旧窗口进程 {_w['pid']}，端口 {port} 仍被占用")
+            _t0 = time.time()
+            while _debug_port_alive(port) and time.time() - _t0 < 10:
+                time.sleep(0.5)
         profile_dir = inst.get("user_data_dir") or os.path.abspath(
             os.path.join("chrome_profiles", name))
         os.makedirs(profile_dir, exist_ok=True)
@@ -1709,16 +1786,20 @@ async def launch_instance(name: str, authenticated: bool = Depends(verify_auth))
             raise HTTPException(status_code=500,
                                 detail="未找到 Chrome/Edge，请先安装 Chrome")
         default_site = BrowserConstants.get("DEFAULT_SITE") or "chatgpt.com"
-        subprocess.Popen(
-            [chrome, f"--remote-debugging-port={port}",
-             f"--user-data-dir={profile_dir}",
-             "--no-first-run", "--no-default-browser-check",
-             *_chrome_proxy_args(),
-             f"https://{default_site}"],
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
-        logger.info(f"[Instance] 已启动实例 {name}:{port}")
-        return {"status": "success",
-                "message": f"已启动 {name}（端口 {port}），窗口稍后弹出"}
+        _argv = [chrome, f"--remote-debugging-port={port}",
+                 f"--user-data-dir={profile_dir}",
+                 "--no-first-run", "--no-default-browser-check",
+                 *_chrome_proxy_args(), f"https://{default_site}"]
+        ok, visible, msg = _launch_chrome_window(_argv, port, name,
+                                                 profile_dir)
+        if not ok:
+            raise HTTPException(status_code=500, detail=msg)
+        logger.info(f"[Instance] 已启动实例 {name}:{port} — {msg}")
+        return {"status": "success", "window_visible": visible,
+                "message": (f"已启动 {name}（端口 {port}），"
+                            f"窗口已弹在你的桌面上，请在里面登录"
+                            if visible else
+                            f"已启动 {name}（端口 {port}），但窗口不可见：{msg}")}
     except HTTPException:
         raise
     except Exception as e:

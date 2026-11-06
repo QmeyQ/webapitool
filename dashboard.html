@@ -801,13 +801,17 @@
                                         <div class="settings-label">
                                             {{ inst.name }}
                                             <span class="text-xs ml-2 font-normal"
-                                                  :class="inst.alive ? 'text-green-600 dark:text-green-400' : 'text-gray-400'">
-                                                {{ inst.alive ? '● 运行中' : '○ 未启动' }}
+                                                  :class="inst.alive ? (inst.window && !inst.window.visible ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400') : 'text-gray-400'">
+                                                <template v-if="!inst.alive">○ 未启动</template>
+                                                <template v-else-if="inst.window && !inst.window.visible">● 运行中（窗口不可见）</template>
+                                                <template v-else>● 运行中</template>
                                             </span>
                                         </div>
                                         <div class="settings-desc">
                                             调试端口 {{ inst.port }}
                                             <span v-if="inst.user_data_dir"> · 独立配置: {{ inst.user_data_dir }}</span>
+                                            <span v-if="inst.window && inst.window.pid"
+                                                  class="text-xs opacity-70"> · 窗口进程 {{ inst.window.pid }}（会话 {{ inst.window.session }}）</span>
                                         </div>
                                         <div class="settings-desc flex flex-wrap items-center gap-2 mt-1">
                                             <template v-if="inst.credit_sites && inst.credit_sites.length">
@@ -825,13 +829,31 @@
                                                             class="ml-0.5 font-bold hover:text-red-900 dark:hover:text-red-100">×</button>
                                                 </span>
                                             </template>
-                                            <span v-else class="text-green-600 dark:text-green-400">各站点状态正常</span>
+                                            <template v-if="inst.limited_sites && inst.limited_sites.length">
+                                                <span v-for="ls in inst.limited_sites"
+                                                      :key="'lim:' + ls.domain"
+                                                      class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+                                                      :title="ls.domain + ' 该账号用量已达上限，中转会自动改用其他账号'">
+                                                    {{ ls.domain }} 账号受限 · {{ ls.reset_at }} 恢复
+                                                    <button @click="clearCreditRecord(inst, { domain: ls.domain, model: '', kind: 'limited' })"
+                                                            title="立即解除冷却（站点仍可能拒绝，需自行确认额度已恢复）"
+                                                            class="ml-0.5 font-bold hover:text-purple-900 dark:hover:text-purple-100">×</button>
+                                                </span>
+                                            </template>
+                                            <span v-if="!(inst.credit_sites && inst.credit_sites.length) && !(inst.limited_sites && inst.limited_sites.length)"
+                                                  class="text-green-600 dark:text-green-400">各站点状态正常</span>
                                         </div>
                                     </div>
                                     <div class="settings-right flex gap-2">
                                         <button v-if="!inst.alive" @click="launchInstance(inst)"
                                                 class="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                                             启动窗口
+                                        </button>
+                                        <button v-else-if="inst.window && !inst.window.visible"
+                                                @click="launchInstance(inst, true)"
+                                                title="该账号的窗口开在服务会话里（看不见、没法登录），结束它并在你的桌面重开一个"
+                                                class="px-3 py-1.5 text-sm text-amber-700 dark:text-amber-300 bg-white dark:bg-gray-800 border border-amber-300 dark:border-amber-700 rounded-lg hover:bg-amber-50 dark:hover:bg-gray-700 transition-colors">
+                                            重开可见窗口
                                         </button>
                                         <button @click="deleteInstance(inst)"
                                                 class="px-3 py-1.5 text-sm text-red-600 dark:text-red-400 border border-red-300 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
@@ -841,7 +863,8 @@
                                 </div>
                                 <div class="settings-row">
                                     <div class="settings-desc">
-                                        新增账号会弹出独立浏览器窗口并打开默认站点，登录一次即长期保持；同一账号可在其窗口内自行打开并登录其它站点，登录态按账号保存。"积分耗尽"标签可点 × 手动清除以立即恢复该账号；到重置时间后记录自动失效。删除账号会同时关闭其窗口（不影响其他账号）。
+                                        新增账号会弹出独立浏览器窗口并打开默认站点，登录一次即长期保持；同一账号可在其窗口内自行打开并登录其它站点，登录态按账号保存。"积分耗尽"标签可点 × 手动清除以立即恢复该账号；到重置时间后记录自动失效。删除账号会同时关闭其窗口（不影响其他账号）。<br>
+                                        服务以系统账户（Session 0）运行时，那里启动的 Chrome 端口能连通但窗口在无人可见的服务桌面上——表现为"显示运行中却没有窗口、账号永远像没登录"。窗口不可见时点"重开可见窗口"，会结束该账号的旧进程并在你的桌面重开一个可登录的窗口（该账号正在执行的请求会中断）。
                                     </div>
                                 </div>
                             </div>
