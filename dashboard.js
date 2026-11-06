@@ -513,6 +513,13 @@ createApp({
         }
     },
 
+    watch: {
+        // 切站点时补齐 upload_config，模板才不会读到 undefined 的嵌套字段
+        currentDomain() {
+            this.ensureUploadCfg()
+        }
+    },
+
     mounted() {
         // 读取夜间模式设置
         const savedDarkMode = localStorage.getItem('darkMode')
@@ -643,12 +650,47 @@ createApp({
                 if (!this.currentDomain && Object.keys(this.sites).length > 0) {
                     this.currentDomain = Object.keys(this.sites)[0]
                 }
+                this.ensureUploadCfg()
             } catch (error) {
                 this.notify('加载配置失败: ' + error.message, 'error')
                 this.sites = {}
             } finally {
                 this.isLoading = false
             }
+        },
+
+        ensureUploadCfg() {
+            // 站点级"长内容"配置的默认值补齐。
+            // 关键是复选框必须如实显示后端的默认：键不存在时若显示"未勾选"，
+            // 用户 merely 打开面板再保存就会写入 CONDENSE_ENABLED=false，
+            // 等于不知不觉把该站的压缩关掉了（后端默认是开）。
+            const c = this.currentConfig
+            if (!c) return {}
+            if (!c.upload_config) c.upload_config = {}
+            const u = c.upload_config
+            if (u.enabled === undefined) u.enabled = true
+            if (u.max_prompt_length === undefined) u.max_prompt_length = 2000
+            if (u.max_file_size === undefined) u.max_file_size = 5242880
+            if (c.CONDENSE_ENABLED === undefined) c.CONDENSE_ENABLED = true
+            return u
+        },
+
+        resetSiteLongContent() {
+            // 把这一站的"长内容"字段全部清空 = 改回跟随全局默认
+            const c = this.currentConfig
+            if (!c) return
+            const KEYS = ['CHUNK_CHARS', 'MAX_CHUNKED_CHUNKS',
+                          'CONDENSE_MIN_CHARS']
+            KEYS.forEach(k => { delete c[k] })
+            delete c.CONDENSE_ENABLED
+            if (c.upload_config) {
+                delete c.upload_config.enabled
+                delete c.upload_config.max_prompt_length
+                delete c.upload_config.max_file_size
+            }
+            this.ensureUploadCfg()
+            this.notify('已恢复为跟随全局默认（记得点"保存配置"写回服务器）',
+                        'success')
         },
 
         async saveConfig() {
@@ -1185,7 +1227,13 @@ createApp({
         normalizeConfig(raw) {
             const norm = {}
             for (const [k, v] of Object.entries(raw)) {
+                // 必须原样保留站点的所有其它键（CHUNK_CHARS、CONDENSE_*、
+                // MAX_CHUNKED_CHUNKS、upload_config、entry_url…）。
+                // 这里以前只挑 selectors/workflow/stealth 三个键，于是面板
+                // 一载入就把其余配置丢掉，再点保存就写回服务器——表现为
+                // "分片大小设了又自己变回去"。
                 norm[k] = {
+                    ...v,
                     selectors: v.selectors || {},
                     workflow: v.workflow || [],
                     stealth: !!v.stealth

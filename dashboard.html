@@ -497,27 +497,143 @@
                     <!-- 站点配置内容 -->
                     <div v-else class="space-y-4">
 
-                        <!-- 长消息分片配置面板 -->
+                        <!-- 长内容策略面板：压缩 / 分片 / 附件（都按站点单独配） -->
                         <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded">
-                            <div class="px-4 py-3 border-b dark:border-gray-700">
-                                <h3 class="font-semibold dark:text-white">✂️ 长消息分片</h3>
-                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    上传不可用时，超过该字符数的消息自动切分为多条分开发送。留空或 0 使用全局默认（12000）。
-                                </p>
-                            </div>
-                            <div class="px-4 py-3 flex items-center gap-3">
-                                <label class="text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">分片大小（字符）</label>
-                                <input type="number" min="0" step="1000"
-                                       v-model.number="currentConfig.CHUNK_CHARS"
-                                       placeholder="12000（默认）"
-                                       class="w-32 px-2 py-1.5 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
-                                <button @click="currentConfig.CHUNK_CHARS = 0"
-                                        class="px-2 py-1.5 text-xs border dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
-                                    恢复默认
+                            <div class="px-4 py-3 border-b dark:border-gray-700 flex justify-between items-start">
+                                <div>
+                                    <h3 class="font-semibold dark:text-white">📦 长内容：压缩 / 分片 / 附件</h3>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        这一站长内容的处理次序：先按"压缩下限"决定要不要压旧内容 →
+                                        再按<b>压缩后</b>的大小决定直发 / 切分片 / 走附件。
+                                        留空或 0 = 跟随全局默认。
+                                    </p>
+                                </div>
+                                <button @click="resetSiteLongContent"
+                                        class="px-2 py-1.5 text-xs border dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 whitespace-nowrap">
+                                    全部恢复默认
                                 </button>
-                                <span class="text-xs text-gray-400 dark:text-gray-500">
-                                    当前生效: {{ (currentConfig.CHUNK_CHARS > 0) ? currentConfig.CHUNK_CHARS : '12000（全局默认）' }}
-                                </span>
+                            </div>
+                            <div class="px-4 py-3 space-y-3">
+
+                                <div class="settings-row">
+                                    <div class="settings-left">
+                                        <div class="settings-label">允许压缩本对话已交付的内容</div>
+                                        <div class="settings-desc">
+                                            关掉后每轮都整份发送。压缩只会省略<b>逐字相同</b>的段落，
+                                            且基准只认当场扫到的网页上下文。
+                                        </div>
+                                    </div>
+                                    <div class="settings-right">
+                                        <input type="checkbox" v-model="currentConfig.CONDENSE_ENABLED"
+                                               class="w-4 h-4 accent-emerald-600">
+                                    </div>
+                                </div>
+
+                                <div class="settings-row">
+                                    <div class="settings-left">
+                                        <div class="settings-label">压缩下限（字符）</div>
+                                        <div class="settings-desc">
+                                            正文不超过这个字符数就不压缩。留空 = 跟随分片大小。
+                                            现场教训：4,051 字符被压成 108 后，模型回"请发送完整消息。"
+                                        </div>
+                                    </div>
+                                    <div class="settings-right flex items-center gap-2">
+                                        <input type="number" min="0" step="1000"
+                                               v-model.number="currentConfig.CONDENSE_MIN_CHARS"
+                                               placeholder="跟随分片大小"
+                                               class="w-32 px-2 py-1.5 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                                        <span class="text-xs text-gray-400 dark:text-gray-500">
+                                            生效: {{ (currentConfig.CONDENSE_MIN_CHARS > 0) ? currentConfig.CONDENSE_MIN_CHARS : ((currentConfig.CHUNK_CHARS > 0 ? currentConfig.CHUNK_CHARS : 12000) + '（跟随分片大小）') }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="settings-row">
+                                    <div class="settings-left">
+                                        <div class="settings-label">分片大小（字符）</div>
+                                        <div class="settings-desc">
+                                            没有附件能力时，超过该字符数的消息自动切成多条分开发送。
+                                            留空或 0 使用全局默认（12000）。
+                                        </div>
+                                    </div>
+                                    <div class="settings-right flex items-center gap-2">
+                                        <input type="number" min="0" step="1000"
+                                               v-model.number="currentConfig.CHUNK_CHARS"
+                                               placeholder="12000（默认）"
+                                               class="w-32 px-2 py-1.5 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                                        <span class="text-xs text-gray-400 dark:text-gray-500">
+                                            当前生效: {{ (currentConfig.CHUNK_CHARS > 0) ? currentConfig.CHUNK_CHARS : '12000（全局默认）' }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="settings-row">
+                                    <div class="settings-left">
+                                        <div class="settings-label">单个请求最多切几片</div>
+                                        <div class="settings-desc">
+                                            超过就直接拒单并说明原因。96 片要发十几分钟，客户端每次超时重试
+                                            都从头再来，等于永远停在第 1、2 片（全局默认 30）。
+                                        </div>
+                                    </div>
+                                    <div class="settings-right flex items-center gap-2">
+                                        <input type="number" min="0" step="1"
+                                               v-model.number="currentConfig.MAX_CHUNKED_CHUNKS"
+                                               placeholder="30（默认）"
+                                               class="w-32 px-2 py-1.5 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                                        <span class="text-xs text-gray-400 dark:text-gray-500">
+                                            当前生效: {{ (currentConfig.MAX_CHUNKED_CHUNKS > 0) ? currentConfig.MAX_CHUNKED_CHUNKS : '30（全局默认）' }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="settings-row">
+                                    <div class="settings-left">
+                                        <div class="settings-label">允许把长内容改存为附件</div>
+                                        <div class="settings-desc">
+                                            关掉后一律走正文/分片直输。注意：站点也可能临时收回上传权限
+                                            （实测免费版某天起上传口全禁用），中转会自动识别并临时改路由，
+                                            与这里的开关相互独立。
+                                        </div>
+                                    </div>
+                                    <div class="settings-right">
+                                        <input type="checkbox" v-model="currentConfig.upload_config.enabled"
+                                               class="w-4 h-4 accent-emerald-600">
+                                    </div>
+                                </div>
+
+                                <div class="settings-row">
+                                    <div class="settings-left">
+                                        <div class="settings-label">走附件的阈值（字符）</div>
+                                        <div class="settings-desc">
+                                            正文超过这个长度就不再硬塞输入框，改存成附件（全局默认 2000）。
+                                        </div>
+                                    </div>
+                                    <div class="settings-right flex items-center gap-2">
+                                        <input type="number" min="0" step="500"
+                                               v-model.number="currentConfig.upload_config.max_prompt_length"
+                                               class="w-32 px-2 py-1.5 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                                    </div>
+                                </div>
+
+                                <div class="settings-row">
+                                    <div class="settings-left">
+                                        <div class="settings-label">单个附件体积上限（字节）</div>
+                                        <div class="settings-desc">
+                                            超过它就改切多文件分片（全局默认 5242880 = 5 MB）。
+                                            设太大只会撞上站点拒收，实测巨型附件模型根本读不完。
+                                        </div>
+                                    </div>
+                                    <div class="settings-right flex items-center gap-2">
+                                        <input type="number" min="0" step="131072"
+                                               v-model.number="currentConfig.upload_config.max_file_size"
+                                               class="w-40 px-2 py-1.5 text-sm border dark:border-gray-600 rounded bg-white dark:bg-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                                    </div>
+                                </div>
+
+                                <div class="settings-desc">
+                                    改完记得点右上角"保存配置"写回 sites.json；保存不会再丢掉站点的其它字段
+                                    （此前载入时只保留 selectors/workflow/stealth，会把这里的设置静默抹掉）。
+                                </div>
                             </div>
                         </div>
 

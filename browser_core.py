@@ -133,6 +133,12 @@ class BrowserConstants:
         'UPLOAD_WAIT_AFTER': 1.5,
         'CONTINUE_CHECK_SILENCE': 2.0,
         'DIRECT_CHUNK_CHARS': 12000,
+        # 压缩下限：正文不超过这个字符数就不压缩（本来一条消息装得得，
+        # 压成占位符只会把任务本体从模型眼前拿走）。0 = 跟随分片大小。
+        # 实测 4,051 字符被压到 108 后模型回"请发送完整消息。"
+        'CONDENSE_MIN_CHARS': 0,
+        # 站点级压缩总开关（面板可关；关掉后每轮整份发送）
+        'CONDENSE_ENABLED': True,
     }
 
     DEFAULT_PORT = 9222
@@ -234,6 +240,30 @@ def _conversation_key(url: str) -> str:
     是否续传按 B 规则查"就会各自判断（2026-11-06 现场即因此每轮点新聊天、
     整份重发）。"""
     return prompt_packager.conversation_id(url)
+
+
+def site_setting(site_config: dict, key: str, global_key: str = "",
+                 default: Any = 0) -> Any:
+    """取值优先级：站点配置 → 全局(.env / BrowserConstants) → 代码默认。
+
+    写成一处：分片大小、最多片数、压缩下限、压缩开关、附件路由阈值都按
+    "这个站点说了算，否则全局说了算"来取。散在各处各写一份 `or` 链，
+    就会出现"面板上改了、某条路径仍用全局值"的两套真相
+    （此前 CHUNK_CHARS 就有两处各自实现，其中一处漏了站点键）。"""
+    cfg = site_config or {}
+    val = cfg.get(key)
+    if (val is None or val == "") and global_key:
+        val = BrowserConstants.get(global_key)
+    if val is None or val == "":
+        return default
+    if isinstance(default, bool):
+        if isinstance(val, str):
+            return val.strip().lower() not in ("0", "false", "no", "off")
+        return bool(val)
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
 
 
 def _resolve_profile_dir(raw: str) -> str:
@@ -6169,9 +6199,14 @@ class BrowserCore:
             # IDE 重放给我们的消息文本里出现过的附件名，不代表网页会话里有它
             _page_names = attachment_names_in_page(tab)
             _upload_ok = self._upload_capability(tab, domain)
-            _chunk_limit = int(site_config.get('CHUNK_CHARS')
-                               or BrowserConstants.get('DIRECT_CHUNK_CHARS')
-                               or 24000)
+            _chunk_limit = site_setting(site_config, 'CHUNK_CHARS',
+                                        'DIRECT_CHUNK_CHARS', 12000)
+            _max_chunks = site_setting(site_config, 'MAX_CHUNKED_CHUNKS',
+                                       'MAX_CHUNKED_CHUNKS', 30)
+            _cond_min = site_setting(site_config, 'CONDENSE_MIN_CHARS',
+                                     'CONDENSE_MIN_CHARS', 0)
+            _cond_on = site_setting(site_config, 'CONDENSE_ENABLED',
+                                    'CONDENSE_ENABLED', True)
             _pkg = self._get_packager().prepare(
                 build_text=lambda ms, with_table: ToolRoundBuilder.build(
                     ms, tools, tool_choice, protocol_mode="always_table",
@@ -6181,9 +6216,9 @@ class BrowserCore:
                 continuation=bool(is_continuation and not session_new),
                 ckey=_fk, page_names=_page_names,
                 upload_available=_upload_ok,
+                condense_enabled=_cond_on, condense_min=_cond_min,
                 upload_cfg=upload_cfg, chunk_limit=_chunk_limit,
-                max_chunks=int(BrowserConstants.get('MAX_CHUNKED_CHUNKS')
-                               or 30))
+                max_chunks=_max_chunks)
             raw_prompt = _pkg.body
             _condense_original = _pkg.original
             _condense_applied = _pkg.compressed
@@ -6395,9 +6430,13 @@ class BrowserCore:
                                      or {}) if resolved_domain else {}
                     except Exception:
                         _site_cfg = {}
-                    _chunk_limit = int(_site_cfg.get('CHUNK_CHARS')
-                                       or BrowserConstants.get(
-                                           'DIRECT_CHUNK_CHARS') or 24000)
+                    _chunk_limit = site_setting(_site_cfg, 'CHUNK_CHARS',
+                                                'DIRECT_CHUNK_CHARS', 12000)
+                    _max_chunks_here = site_setting(_site_cfg,
+                                                    'MAX_CHUNKED_CHUNKS',
+                                                    'MAX_CHUNKED_CHUNKS', 30)
+                    context["chunk_limit"] = _chunk_limit
+                    context["max_chunked_chunks"] = _max_chunks_here
                     if (action == "FILL_INPUT"
                             and not context.get("chunked_sent")
                             and upload_strategy == LongPromptRouter.STRATEGY_DIRECT
@@ -6770,8 +6809,16 @@ class BrowserCore:
         - 最后一片头部声明"消息已全部发送完毕，请统一回复"
         发完后由 workflow 正常进入流式监听，等 AI 统一回复。"""
         prompt = context.get("prompt") or ""
+        # 片长与片数上限：调用方给的 > 站点级 > 全局 > 代码默认
+        # （site_setting 已经在前面的步骤里把站点值放进 context，
+        #  这里再兜一次，保证任何调用路径都不会退回"另一套默认值"）
         limit = int(chunk_limit
-                    or BrowserConstants.get('DIRECT_CHUNK_CHARS') or 24000)
+                    or context.get("chunk_limit")
+                    or site_setting({}, 'CHUNK_CHARS',
+                                    'DIRECT_CHUNK_CHARS', 12000))
+        max_chunks = int(context.get("max_chunked_chunks")
+                         or site_setting({}, 'MAX_CHUNKED_CHUNKS',
+                                         'MAX_CHUNKED_CHUNKS', 30))
         # 兜底：页面若残留已附上的附件（验证假阴性误回退/上一轮发送
         # 失败残留），先清理再分片，避免"附件完整附带却还在分片"共存。
         # 2026-11-05 修正：只查 input[type=file].files 检测不到已被
@@ -6791,7 +6838,6 @@ class BrowserCore:
             pass
         chunks = _split_prompt_chunks(prompt, limit)
         n = len(chunks)
-        max_chunks = int(BrowserConstants.get('MAX_CHUNKED_CHUNKS') or 30)
         if n > max_chunks:
             # 网页端承载不了这种体量：与其开一个永远发不完、还被客户端反复
             # 重试的 96 片任务（现场停在第 1、2 片循环），不如明确拒单，

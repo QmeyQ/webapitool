@@ -102,7 +102,8 @@ class Package:
     composer_text: str = ""              # 真正写进输入框的那句话
     protect_len: int = 0                 # 协议区长度（豁免压缩）
     compressed: bool = False
-    baseline_source: str = ""            # memory/attach/history/uploads
+    baseline_source: str = ""            # delivery/page-attachment
+    condense_floor: int = 0              # 本轮实际生效的压缩下限
     ref_note: str = ""                   # 省略内容所在附件的说明
     fk: str = ""
     audit: Dict[str, int] = field(default_factory=dict)
@@ -296,7 +297,9 @@ class PromptPackager:
                 chunk_limit: int = 24000,
                 max_chunks: int = 30,
                 page_names: Optional[List[str]] = None,
-                upload_available: bool = True) -> Package:
+                upload_available: bool = True,
+                condense_enabled: bool = True,
+                condense_min: int = 0) -> Package:
         """一定先压缩，再按压缩后的大小决定打包方式。
 
         page_names 是调用方**现场扫网页对话 DOM** 得到的附件文件名列表：
@@ -312,11 +315,16 @@ class PromptPackager:
                           original, messages, tools, think_hint))
 
         # —— 1. 压缩（只在续聊同一对话时有意义）——
-        # 但"能压"不等于"该压"：本来一条消息就装得下的内容（<= chunk_limit），
+        # 但"能压"不等于"该压"：本来一条消息就装得下的内容（<= 压缩下限），
         # 压成 首两字..末两字 只省下几秒输入，却把任务本体从模型眼前拿走。
         # 实测 4,051 字符被压到 108 字符后，模型直接回"请发送完整消息。"
         # 压缩的价值在避免十几万字符切成几十片，不在省这点字。
-        if (continuation and ckey and len(original) > chunk_limit):
+        # 下限默认跟分片大小一致，站点面板可以单独调（CONDENSE_MIN_CHARS），
+        # 整轮压缩也能按站点关掉（CONDENSE_ENABLED=false）。
+        floor = int(condense_min or chunk_limit)
+        pkg.condense_floor = floor
+        if (continuation and ckey and condense_enabled
+                and len(original) > floor):
             prev, ref_note, src = self.find_baseline(ckey, page_names)
             pkg.baseline_source = src
             pkg.ref_note = ref_note
@@ -340,9 +348,13 @@ class PromptPackager:
                     logger.info(f"[Packager] 无可压缩段（基准来源={src}，"
                                 f"{len(original)} 字符）")
         elif continuation and ckey:
-            logger.info(f"[Packager] 本轮不压缩：{len(original)} 字符本来就能"
-                        f"单条发送（片长上限 {chunk_limit}），"
-                        "压成占位符只会让模型看不见任务本体")
+            if not condense_enabled:
+                logger.info(f"[Packager] 本轮不压缩：该站点已关闭压缩"
+                            f"（CONDENSE_ENABLED=false），{len(original)} 字符整份发送")
+            else:
+                logger.info(f"[Packager] 本轮不压缩：{len(original)} 字符未过压缩下限 "
+                            f"{floor}（本来就能单条发送），"
+                            "压成占位符只会让模型看不见任务本体")
 
         # —— 2. 按压缩后的大小决定策略 ——
         # upload_available=False 时绝不选 file/chunked-files：实测免费版某天起
@@ -381,6 +393,7 @@ class PromptPackager:
         logger.info(f"[Packager] 策略={pkg.strategy} 原文={len(original)} "
                     f"交付={size} 片数约={n_chunks} "
                     f"基准={pkg.baseline_source or '无'} "
+                    f"压缩下限={floor} "
                     f"上传能力={'有' if upload_available else '无'}")
 
         # —— 3. 输入框文本（附件轮次：短模板 + 工具名清单 + 格式提示）——

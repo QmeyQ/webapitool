@@ -297,5 +297,59 @@ class TestStaleAttachmentNameIsNotCited:
         assert p2.ref_note == "", "不该再引用那个从未落地的附件"
 
 
+class TestSiteSettingPrecedence:
+    """站点 → 全局 → 代码默认，只此一处实现"""
+
+    def test_site_wins_over_global(self):
+        assert bc.site_setting({'CHUNK_CHARS': 8000}, 'CHUNK_CHARS',
+                               'DIRECT_CHUNK_CHARS', 12000) == 8000
+
+    def test_global_used_when_site_absent(self):
+        assert bc.site_setting({}, 'CHUNK_CHARS', 'DIRECT_CHUNK_CHARS',
+                               12000) == 12000
+
+    def test_blank_string_counts_as_absent(self):
+        """面板留空会被存成 ''，必须理解为"跟随全局"而不是 0"""
+        assert bc.site_setting({'MAX_CHUNKED_CHUNKS': ''},
+                               'MAX_CHUNKED_CHUNKS', 'MAX_CHUNKED_CHUNKS',
+                               30) == 30
+
+    def test_bool_parses_text_false(self):
+        assert bc.site_setting({'CONDENSE_ENABLED': 'false'},
+                               'CONDENSE_ENABLED', 'CONDENSE_ENABLED',
+                               True) is False
+        assert bc.site_setting({'CONDENSE_ENABLED': True},
+                               'CONDENSE_ENABLED', 'CONDENSE_ENABLED',
+                               True) is True
+
+    def test_garbage_number_falls_back(self):
+        assert bc.site_setting({'CHUNK_CHARS': '很多'}, 'CHUNK_CHARS',
+                               'DIRECT_CHUNK_CHARS', 12000) == 12000
+
+    def test_defaults_registered_globally(self):
+        d = bc.BrowserConstants.get_defaults()
+        assert d['CONDENSE_MIN_CHARS'] == 0
+        assert d['CONDENSE_ENABLED'] is True
+
+
+class TestChunkedSendHonorsSiteCaps:
+    """分片路径也要用站点级片长/片数，不能退回另一套默认值"""
+
+    def test_context_values_are_used(self):
+        import tests.test_chunked_send as tcs
+        ex = tcs.FakeExecutor(reject_over=99999)
+        auto = bc.BrowserCore.__new__(bc.BrowserCore)
+        auto._should_stop_checker = lambda: False
+        auto._wait_generation_settled = lambda e, timeout=90: None
+        ctx = {"prompt": "X" * 50000, "session_fk": "",
+               "chunk_limit": 20000, "max_chunked_chunks": 2}
+        with pytest.raises(bc.TooLongError) as ei:
+            list(bc.BrowserCore._chunked_direct_send(auto, ex, ctx,
+                  {"input_box": "#in", "send_btn": "#send"},
+                  chunk_limit=None))
+        assert "最多 2 片" in str(ei.value)
+        assert "≤20000" in str(ei.value), "片长也要用站点值"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

@@ -465,5 +465,61 @@ class TestRealSampleEndToEnd:
         assert pkg3.body == second, "页面没有附件时，必须整份发送"
 
 
+class TestCompressSettings:
+    """面板上的"压缩开关 / 压缩下限"必须真的被 prepare 用上"""
+
+    BIG = REAL_HEAD + "[user]\n" + ("同一份长历史。\n" * 6000)     # ~54k
+
+    def _pkg(self, packager, **kw):
+        base = dict(build_text=lambda m, t: self.BIG, messages=_msgs(self.BIG),
+                    tools=TOOLS, think_hint=False, continuation=True,
+                    ckey="chatgpt.com:convSet",
+                    upload_cfg={"max_prompt_length": 2000},
+                    chunk_limit=12000)
+        packager.baseline["chatgpt.com:convSet"] = self.BIG
+        base.update(kw)
+        return packager.prepare(**base)
+
+    def test_default_floor_follows_chunk_limit(self, packager):
+        pkg = self._pkg(packager)
+        assert pkg.compressed is True
+        assert pkg.condense_floor == 12000
+
+    def test_floor_above_body_skips_compression(self, packager):
+        """压缩下限设到 60k：54k 的正文就该整份发送"""
+        pkg = self._pkg(packager, condense_min=60000)
+        assert pkg.compressed is False
+        assert pkg.body == self.BIG
+        assert pkg.condense_floor == 60000
+
+    def test_floor_below_chunk_limit_enables_compression(self, packager):
+        """下限压到 3k：4k 这种本来单条发送的内容也允许压（有人就想要这个）"""
+        text = REAL_HEAD + "[user]\n" + ("重复内容。\n" * 600)
+        packager.baseline["chatgpt.com:convSet"] = text
+        pkg = packager.prepare(build_text=lambda m, t: text + "新增一行\n",
+                               messages=_msgs(text), tools=TOOLS,
+                               think_hint=False, continuation=True,
+                               ckey="chatgpt.com:convSet",
+                               upload_cfg={"max_prompt_length": 2000},
+                               chunk_limit=12000, condense_min=3000)
+        assert pkg.compressed is True
+
+    def test_compression_disabled_by_switch(self, packager):
+        pkg = self._pkg(packager, condense_enabled=False)
+        assert pkg.compressed is False
+        assert pkg.body == self.BIG
+
+    def test_strategy_size_uses_compressed_body(self, packager):
+        """开关与下限要一起影响策略：关掉压缩 → 54k 走 file/chunked"""
+        off = self._pkg(packager, condense_enabled=False,
+                        upload_cfg={"max_prompt_length": 2000,
+                                    "max_file_size": 100_000})
+        on = self._pkg(packager,
+                       upload_cfg={"max_prompt_length": 2000,
+                                   "max_file_size": 100_000})
+        assert on.strategy == pp.STRATEGY_DIRECT, "压完只剩一点 → 直发"
+        assert off.strategy in (pp.STRATEGY_FILE, pp.STRATEGY_CHUNKED)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
