@@ -1123,11 +1123,14 @@ createApp({
         async clearCreditRecord(inst, cs) {
             try {
                 let url = `/api/credit-state?domain=${encodeURIComponent(cs.domain)}&port=${inst.port}`;
-                // toolong / limited 是另两类记录，清除接口靠 kind 区分
-                const kind = (cs.kind === 'toolong' || cs.kind === 'limited')
-                    ? cs.kind : '';
+                // toolong / limited / cap 是另几类登记，清除接口靠 kind 区分
+                const kind = (cs.kind === 'toolong' || cs.kind === 'limited'
+                    || cs.kind === 'cap') ? cs.kind : '';
                 if (kind) {
                     url += `&kind=${kind}`;
+                }
+                if (kind === 'cap' && cs.capability) {
+                    url += `&capability=${encodeURIComponent(cs.capability)}`;
                 }
                 // 指定模型只清该模型记录；不传清该账号该站点全部模型
                 if (cs.model) {
@@ -1135,7 +1138,8 @@ createApp({
                 }
                 await this.apiRequest(url, { method: 'DELETE' });
                 const what = kind === 'toolong' ? '消息过长标记'
-                    : kind === 'limited' ? '受限冷却' : '积分记录';
+                    : kind === 'limited' ? '受限冷却'
+                    : kind === 'cap' ? '缺能力登记' : '积分记录';
                 this.notify(`${inst.name} 的 ${cs.domain}${cs.model ? ' · ' + cs.model : ''} ${what}已清除，该账号立即可用`, 'success');
                 await this.loadInstances(true);
             } catch (error) {

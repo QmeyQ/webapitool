@@ -25,6 +25,7 @@ site_state.json
 credit_state.json
 session_bindings.json
 pack_state.json
+site_caps.json
 
 # Python 字节码与测试缓存
 __pycache__/

@@ -421,6 +421,103 @@ def attachment_names_in_page(tab) -> list:
     return [str(x) for x in got if x]
 
 
+# 常见扩展名 → MIME/子类型，用于判断某个上传口能不能吃下这个文件。
+# 放在模块级：选择上传口与"能力探测"必须共用同一套 accept 规则，
+# 两处各写一份就会出现"探测说可用、真去注入却被静默丢弃"。
+_UPLOAD_MIME = {
+    "txt": ("text/plain",), "md": ("text/plain", "text/markdown"),
+    "csv": ("text/csv",), "tsv": ("text/tab-separated-values",),
+    "json": ("application/json",), "xml": ("application/xml",),
+    "pdf": ("application/pdf",), "doc": ("application/msword",),
+    "docx": ("application/vnd.openxmlformats-officedocument."
+             "wordprocessingml.document",),
+    "xls": ("application/vnd.ms-excel",),
+    "xlsx": ("application/vnd.openxmlformats-officedocument."
+             "spreadsheetml.sheet",),
+    "pptx": ("application/vnd.openxmlformats-officedocument."
+             "presentationml.presentation",),
+    "zip": ("application/zip", "application/x-zip-compressed"),
+    "png": ("image/png",), "jpg": ("image/jpeg",),
+    "jpeg": ("image/jpeg",), "gif": ("image/gif",),
+    "webp": ("image/webp",), "svg": ("image/svg+xml",),
+    "bmp": ("image/bmp",), "mp3": ("audio/mpeg",),
+    "wav": ("audio/wav",), "mp4": ("video/mp4",),
+}
+
+
+def upload_port_score(info: dict, ext: str) -> float:
+    """给一个 file input 打"能不能用作本次文档上传"的分，<=0 视为不可用。
+
+    规则只此一份（_pick_upload_input 与上传能力探测都用它）：
+      * disabled 直接判死——实测免费版某天起 composer 的 4 个口全部
+        disabled，注入不报错但附件永远不出现，每轮白烧 12s 再刷新回退
+      * accept 为空或 */* = 通用文档通道；image/* 之类只算半可用
+      * 属于"当前聚焦的 composer"才加分：点过新聊天后旧输入区的口还留在
+        DOM 里，注入它同样静默失败
+    """
+    if info.get("disabled"):
+        return -9.0
+    acc = str(info.get("accept") or "")
+    parts = [p.strip() for p in acc.split(",") if p.strip()]
+    if not parts or "*/*" in parts:
+        s = 3.0
+    else:
+        mimes = _UPLOAD_MIME.get(ext, ())
+        s = -3.0
+        for p in parts:
+            if p.startswith(".") and p[1:] == ext:
+                s = max(s, 3.0)
+            elif p.endswith("/*"):
+                major = p.split("/")[0]
+                if any(m.startswith(major + "/") for m in mimes):
+                    s = max(s, 2.0)
+            elif mimes and p in mimes:
+                s = max(s, 2.0)
+    if info.get("in_focused_editor_form"):
+        s += 3.5
+    elif info.get("in_visible_editor_form"):
+        s += 2.0
+    elif info.get("in_editor_form"):
+        s -= 1.5
+    if info.get("multiple"):
+        s += 0.5
+    return s
+
+
+def probe_upload_capability(tab, ext: str = "txt") -> dict:
+    """只读探测：这个页面此刻有没有可用的文档上传口。
+
+    返回 {"upload": bool, "ports": [...], "reason": str}。
+    探测本身失败一律返回 upload=True——宁可照旧试一次上传，
+    也不要因为探针出错就把附件能力判死。"""
+    try:
+        facts = tab.run_js(WorkflowExecutor._FILE_INPUT_FACTS_JS)
+    except Exception as e:
+        logger.debug(f"[UploadCap] 探测失败（按可用处理）: {e}")
+        return {"upload": True, "ports": [], "reason": f"探测异常: {e}"}
+    if not isinstance(facts, list) or not facts:
+        return {"upload": True, "ports": [],
+                "reason": "未取到上传口清单（按可用处理）"}
+    best = -99.0
+    ports = []
+    for f in facts:
+        if not isinstance(f, dict):
+            continue
+        sc = upload_port_score(f, ext)
+        best = max(best, sc)
+        ports.append({"accept": str(f.get("accept") or ""),
+                      "disabled": bool(f.get("disabled")),
+                      "score": round(sc, 1)})
+    if best > 0:
+        return {"upload": True, "ports": ports, "reason": ""}
+    n_dis = sum(1 for p in ports if p["disabled"])
+    reason = (f"{len(ports)} 个上传口全部禁用（站点未给该账号开放上传）"
+              if ports and n_dis == len(ports) else
+              f"没有能接收 .{ext} 的上传口 accept="
+              f"{[p['accept'] or '空' for p in ports]}")
+    return {"upload": False, "ports": ports, "reason": reason}
+
+
 def probe_page_state(tab, domain: str = "") -> dict:
     """只读探测当前标签页可用性：ok / error_page / need_login /
     no_editor / usage_limited / unknown。探测失败一律 unknown，绝不因守卫误伤正常站点。
@@ -3357,6 +3454,7 @@ return Array.from(document.querySelectorAll('input[type="file"]')).map(
     return {
       i: i,
       accept: (el.accept || '').toLowerCase().trim(),
+      disabled: !!(el.disabled || (el.closest && el.closest('[disabled],fieldset[disabled]'))),
       multiple: !!el.multiple,
       in_editor_form: !!f && eds.length > 0,
       in_visible_editor_form: visEds.length > 0,
@@ -3371,26 +3469,7 @@ return Array.from(document.querySelectorAll('input[type="file"]')).map(
   });
 """
 
-    # 常见扩展名 → MIME/子类型，用于按 accept 判断可用性
-    _UPLOAD_MIME = {
-        "txt": ("text/plain",), "md": ("text/plain", "text/markdown"),
-        "csv": ("text/csv",), "tsv": ("text/tab-separated-values",),
-        "json": ("application/json",), "xml": ("application/xml",),
-        "pdf": ("application/pdf",), "doc": ("application/msword",),
-        "docx": ("application/vnd.openxmlformats-officedocument."
-                 "wordprocessingml.document",),
-        "xls": ("application/vnd.ms-excel",),
-        "xlsx": ("application/vnd.openxmlformats-officedocument."
-                 "spreadsheetml.sheet",),
-        "pptx": ("application/vnd.openxmlformats-officedocument."
-                 "presentationml.presentation",),
-        "zip": ("application/zip", "application/x-zip-compressed"),
-        "png": ("image/png",), "jpg": ("image/jpeg",),
-        "jpeg": ("image/jpeg",), "gif": ("image/gif",),
-        "webp": ("image/webp",), "svg": ("image/svg+xml",),
-        "bmp": ("image/bmp",), "mp3": ("audio/mpeg",),
-        "wav": ("audio/wav",), "mp4": ("video/mp4",),
-    }
+    # 常见扩展名 → MIME 见模块级 _UPLOAD_MIME（与上传能力探测共用一套规则）
 
     def _page_state(self, cache_ttl: float = 0.0,
                   domain: str = "") -> dict:
@@ -3476,39 +3555,10 @@ return {msgs: msgs, ports: ports};
         if not isinstance(facts, list) or len(facts) != len(els):
             facts = []
 
-        def _score(f: dict) -> float:
-            acc = str(f.get("accept") or "")
-            parts = [p.strip() for p in acc.split(",") if p.strip()]
-            if not parts:
-                s = 3.0  # 无 accept 限制 = 通用文档通道
-            elif "*/*" in parts:
-                s = 3.0
-            else:
-                mimes = self._UPLOAD_MIME.get(ext, ())
-                s = -3.0
-                for p in parts:
-                    if p.startswith(".") and p[1:] == ext:
-                        s = max(s, 3.0)
-                    elif p.endswith("/*"):
-                        major = p.split("/")[0]
-                        if any(m.startswith(major + "/") for m in mimes):
-                            s = max(s, 2.0)
-                    elif mimes and p in mimes:
-                        s = max(s, 2.0)
-            if f.get("in_focused_editor_form"):
-                s += 3.5   # 当前聚焦的 composer —— 唯一能让附件真正上屏的
-            elif f.get("in_visible_editor_form"):
-                s += 2.0
-            elif f.get("in_editor_form"):
-                s -= 1.5   # 属于已废弃/隐藏的 composer：注入不报错但附件不出现
-            if f.get("multiple"):
-                s += 0.5   #  composer 文档口多为 multiple
-            return s
-
         scored = []
         for i, el in enumerate(els):
             f = facts[i] if facts else {}
-            scored.append((_score(f), i, f))
+            scored.append((upload_port_score(f, ext), i, f))
         scored.sort(key=lambda x: (-x[0], x[1]))
         best, idx, info = scored[0]
         if best <= 0:
@@ -6118,6 +6168,7 @@ class BrowserCore:
             # 压缩基准只能建立在"当场扫出来的网页上下文"上：
             # IDE 重放给我们的消息文本里出现过的附件名，不代表网页会话里有它
             _page_names = attachment_names_in_page(tab)
+            _upload_ok = self._upload_capability(tab, domain)
             _chunk_limit = int(site_config.get('CHUNK_CHARS')
                                or BrowserConstants.get('DIRECT_CHUNK_CHARS')
                                or 24000)
@@ -6129,6 +6180,7 @@ class BrowserCore:
                 think_hint=think_hint,
                 continuation=bool(is_continuation and not session_new),
                 ckey=_fk, page_names=_page_names,
+                upload_available=_upload_ok,
                 upload_cfg=upload_cfg, chunk_limit=_chunk_limit,
                 max_chunks=int(BrowserConstants.get('MAX_CHUNKED_CHUNKS')
                                or 30))
@@ -6245,6 +6297,7 @@ class BrowserCore:
                             logger.warning(
                                 f"[LongPrompt] 上传不可用（{e}），"
                                 f"刷新页面清理残留后回退直接输入")
+                            self.mark_upload_unavailable(domain, str(e))
                             try:
                                 executor.tab.refresh(timeout=10)
                                 time.sleep(3.0)
@@ -6293,6 +6346,7 @@ class BrowserCore:
                                 logger.warning(
                                     f"[LongPrompt] 上传不可用（{e}），"
                                     f"刷新页面清理残留后回退直接输入")
+                                self.mark_upload_unavailable(domain, str(e))
                                 try:
                                     executor.tab.refresh(timeout=10)
                                     time.sleep(3.0)
@@ -6504,6 +6558,48 @@ class BrowserCore:
     def _chunk_progress(self, value):
         self._get_packager().chunk_progress = (
             value if isinstance(value, dict) else {})
+
+    def _upload_capability(self, tab, domain: str) -> bool:
+        """这个账号此刻有没有文档上传能力（结果登记一段时间，别每轮重试）。
+
+        为什么值得单独一步：实测免费版某天起 composer 的 4 个
+        `input[type=file]` 全部 disabled，附件永远落不上。照原流程走，
+        每个长 prompt 都要"注入 → 等 12s 发现附件没出现 → 刷新页面清残留
+        → 回退直输"，刷新还会打断这一轮的发送；而回退本身是好的，
+        白烧的那 12s+ 才是问题。探测一次就登记 15 分钟，到期自动再探。"""
+        port = int(getattr(self, "port", 0) or 0)
+        try:
+            if not site_policy.capability_ok(site_policy.CAP_UPLOAD,
+                                             domain, port):
+                return False        # 冷却期内直接认定没有，不再碰页面
+        except Exception:
+            pass
+        try:
+            cap = probe_upload_capability(tab)
+        except Exception as e:
+            logger.debug(f"[UploadCap] 探测异常（按可用处理）: {e}")
+            return True
+        if not cap.get("upload"):
+            try:
+                site_policy.mark_capability_missing(
+                    site_policy.CAP_UPLOAD, domain, port)
+            except Exception as e:
+                logger.debug(f"[UploadCap] 登记失败: {e}")
+            logger.warning(f"[UploadCap] {cap.get('reason')}"
+                           " —— 本轮起长内容不走附件，直接正文/分片发送")
+            return False
+        return True
+
+    def mark_upload_unavailable(self, domain: str, why: str = "") -> None:
+        """运行中真的试过一次上传且失败 → 登记一段时间别再试"""
+        try:
+            site_policy.mark_capability_missing(
+                site_policy.CAP_UPLOAD, domain,
+                int(getattr(self, "port", 0) or 0))
+            logger.warning(f"[UploadCap] 上传实测失败（{why[:90]}），"
+                           "该账号 15 分钟内不再尝试附件")
+        except Exception as e:
+            logger.debug(f"[UploadCap] 登记失败: {e}")
 
     def _attachment_baseline(self, fk: str,
                              page_names: Optional[list] = None) -> tuple:

@@ -295,7 +295,8 @@ class PromptPackager:
                 upload_cfg: Optional[Dict] = None,
                 chunk_limit: int = 24000,
                 max_chunks: int = 30,
-                page_names: Optional[List[str]] = None) -> Package:
+                page_names: Optional[List[str]] = None,
+                upload_available: bool = True) -> Package:
         """一定先压缩，再按压缩后的大小决定打包方式。
 
         page_names 是调用方**现场扫网页对话 DOM** 得到的附件文件名列表：
@@ -311,7 +312,11 @@ class PromptPackager:
                           original, messages, tools, think_hint))
 
         # —— 1. 压缩（只在续聊同一对话时有意义）——
-        if continuation and ckey:
+        # 但"能压"不等于"该压"：本来一条消息就装得下的内容（<= chunk_limit），
+        # 压成 首两字..末两字 只省下几秒输入，却把任务本体从模型眼前拿走。
+        # 实测 4,051 字符被压到 108 字符后，模型直接回"请发送完整消息。"
+        # 压缩的价值在避免十几万字符切成几十片，不在省这点字。
+        if (continuation and ckey and len(original) > chunk_limit):
             prev, ref_note, src = self.find_baseline(ckey, page_names)
             pkg.baseline_source = src
             pkg.ref_note = ref_note
@@ -334,13 +339,21 @@ class PromptPackager:
                 else:
                     logger.info(f"[Packager] 无可压缩段（基准来源={src}，"
                                 f"{len(original)} 字符）")
+        elif continuation and ckey:
+            logger.info(f"[Packager] 本轮不压缩：{len(original)} 字符本来就能"
+                        f"单条发送（片长上限 {chunk_limit}），"
+                        "压成占位符只会让模型看不见任务本体")
 
         # —— 2. 按压缩后的大小决定策略 ——
+        # upload_available=False 时绝不选 file/chunked-files：实测免费版某天起
+        # composer 的 4 个 input[type=file] 全部 disabled，附件根本落不上。
+        # 让站点自己拒一遍要 12s + 一次页面刷新（刷新还会打断这一轮），
+        # 所以这里直接改走正文/分片直输。
         size = len(pkg.body)
         max_len = int(upload_cfg.get("max_prompt_length", 2000) or 2000)
         max_file = int(upload_cfg.get("max_file_size", 5 * 1024 * 1024)
                        or 5 * 1024 * 1024)
-        enabled = upload_cfg.get("enabled", True)
+        enabled = (upload_cfg.get("enabled", True) and upload_available)
         n_chunks = -(-size // max(1, chunk_limit))
         if size > max_len and enabled:
             if size * 2 > max_file:            # 字节数粗估（utf-8 中文约 3x）
@@ -348,6 +361,14 @@ class PromptPackager:
                     else TOO_LONG
             else:
                 pkg.strategy = STRATEGY_FILE
+        elif size > max_len and not upload_available:
+            # 没附件能力又要发长内容：只能切片直输，超过片数上限就是装不下
+            if n_chunks > max_chunks:
+                raise TooLongPlan(
+                    f"[Packager] 该账号没有上传能力，{size} 字符需切约 "
+                    f"{n_chunks} 片，超过单请求最多 {max_chunks} 片的上限——"
+                    "请缩减上下文，或换一个有上传权限的账号")
+            pkg.strategy = STRATEGY_DIRECT
         else:
             pkg.strategy = STRATEGY_DIRECT
         if pkg.strategy == TOO_LONG:
@@ -358,7 +379,9 @@ class PromptPackager:
         pkg.audit = {"original": len(original), "body": size,
                      "chunks": n_chunks, "protect": pkg.protect_len}
         logger.info(f"[Packager] 策略={pkg.strategy} 原文={len(original)} "
-                    f"交付={size} 片数约={n_chunks} 基准={pkg.baseline_source or '无'}")
+                    f"交付={size} 片数约={n_chunks} "
+                    f"基准={pkg.baseline_source or '无'} "
+                    f"上传能力={'有' if upload_available else '无'}")
 
         # —— 3. 输入框文本（附件轮次：短模板 + 工具名清单 + 格式提示）——
         pkg.composer_text = self._composer_text(pkg, messages, tools,
@@ -424,11 +447,18 @@ class PromptPackager:
         只有 attachment 需要下一轮在页面上复核：上传被站点静默拒绝时
         我们也曾"以为"附件已经交付，占位符于是指向 AI 根本看不到的文件
         （2026-11-06 现场：本地 uploads 存着 8 个文件，网页对话里出现 0 次），
-        表现就是"找不到附件、答非所问"。"""
+        表现就是"找不到附件、答非所问"。
+
+        实际不是附件交付时，把之前那次失败尝试登记的文件名一并清掉：
+        留着它，下一轮的省略说明就会写成"内容在附件 xxx 里"，
+        而那个附件从来没上过天。"""
         if not ckey:
             return
         info = self.attachments.setdefault(ckey, {"names": [], "label": ""})
         info["mode"] = mode
+        if mode != "attachment":
+            info["names"] = []
+            info["label"] = ""
 
     def attachments_on_page(self, ckey: str,
                             page_names: List[str]) -> Tuple[bool, List[str]]:

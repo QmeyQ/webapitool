@@ -840,7 +840,21 @@
                                                             class="ml-0.5 font-bold hover:text-purple-900 dark:hover:text-purple-100">×</button>
                                                 </span>
                                             </template>
-                                            <span v-if="!(inst.credit_sites && inst.credit_sites.length) && !(inst.limited_sites && inst.limited_sites.length)"
+                                            <template v-if="inst.caps_missing && inst.caps_missing.length">
+                                                <span v-for="cm in inst.caps_missing"
+                                                      :key="'cap:' + cm.capability + ':' + cm.domain"
+                                                      class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300"
+                                                      :title="cm.capability === 'upload' ? '站点没给这个账号开放上传：长内容直接正文/分片发送，不再空试上传' : cm.capability">
+                                                    {{ cm.domain }}
+                                                    <template v-if="cm.capability === 'upload'">无上传权限</template>
+                                                    <template v-else>{{ cm.capability }}</template>
+                                                    · {{ cm.reset_at }} 复检
+                                                    <button @click="clearCreditRecord(inst, { domain: cm.domain, model: '', kind: 'cap', capability: cm.capability })"
+                                                            title="立即复检（下一轮会重新探测上传口）"
+                                                            class="ml-0.5 font-bold hover:text-sky-900 dark:hover:text-sky-100">×</button>
+                                                </span>
+                                            </template>
+                                            <span v-if="!(inst.credit_sites && inst.credit_sites.length) && !(inst.limited_sites && inst.limited_sites.length) && !(inst.caps_missing && inst.caps_missing.length)"
                                                   class="text-green-600 dark:text-green-400">各站点状态正常</span>
                                         </div>
                                     </div>

@@ -96,6 +96,8 @@ from browser_core import (get_browser, BrowserConnectionError,
                           CREDIT_EXHAUSTED_RE, get_site_model_candidates,
                           PageUnavailableError, TooLongError)
 from site_strategy import account_state as site_account_state
+from site_strategy import capability_until as site_capability_until
+from site_strategy import capability_state as site_capability_state
 import chrome_launcher
 from config_engine import config_engine, ConfigConstants
 from request_manager import request_manager, RequestContext, RequestStatus, watch_client_disconnect
@@ -1669,6 +1671,21 @@ async def get_instances(authenticated: bool = Depends(verify_auth)):
                     "reset_at": time.strftime('%m-%d %H:%M',
                                               time.localtime(_until)),
                 })
+        # 站点能力缺失（实测：免费版某天起上传口全禁用）：不显示的话，
+        # 面板只会看到"长内容为什么总是不带附件"
+        caps_missing = []
+        for _cap in ("upload",):
+            for _d in sites:
+                _until = site_capability_until(_cap, _d, port)
+                if _until:
+                    caps_missing.append({
+                        "capability": _cap,
+                        "domain": _d,
+                        "kind": "cap",
+                        "until": _until,
+                        "reset_at": time.strftime(
+                            '%m-%d %H:%M', time.localtime(_until)),
+                    })
         out.append({
             "name": inst.get("name"),
             "port": port,
@@ -1678,6 +1695,7 @@ async def get_instances(authenticated: bool = Depends(verify_auth)):
                                           "visible": False},
             "credit_sites": credit_sites,
             "limited_sites": limited_sites,
+            "caps_missing": caps_missing,
         })
     return {"instances": out, "chrome_path": _find_chrome_exe(), "sites": sites}
 
@@ -1686,10 +1704,12 @@ async def get_instances(authenticated: bool = Depends(verify_auth)):
 async def clear_credit_state(domain: str, port: int,
                              model: Optional[str] = None,
                              kind: Optional[str] = None,
+                             capability: Optional[str] = None,
                              authenticated: bool = Depends(verify_auth)):
     """手动清除某账号在某站点的状态记录（立即恢复该账号可用）。
 
     kind=toolong 清除消息过长拒收标记；kind=limited 清除账号级用量受限冷却；
+    kind=cap 清除"站点能力缺失"登记（capability 指定哪种能力，默认 upload）；
     默认清积分耗尽记录。
     model 不传时清除该账号在该站点全部模型的记录。"""
     if kind == "toolong":
@@ -1697,6 +1717,12 @@ async def clear_credit_state(domain: str, port: int,
     elif kind == "limited":
         removed = site_account_state.clear(domain, port)
         logger.info(f"[Site] 手动解除受限冷却 {domain} :{port} -> {removed}")
+    elif kind == "cap":
+        from site_strategy import CAP_UPLOAD
+        removed = site_capability_state.clear(
+            f"{capability or CAP_UPLOAD}@{domain}", port)
+        logger.info(f"[Site] 手动解除缺能力登记 "
+                    f"{capability or CAP_UPLOAD}@{domain} :{port} -> {removed}")
     else:
         removed = CreditStateStore.clear(domain, port, model=model)
     return {"status": "success", "removed": removed}
