@@ -5968,7 +5968,7 @@ class BrowserCore:
                             logger.info(
                                 f"[MsgCondense] 会话 {_fp0} 压缩生效: "
                                 f"{len(_condense_original)} → {len(_c)} 字符"
-                                f"（协议区 {_protect} 字符豁免，块级去重"
+                                f"（协议区 {_protect} 字符豁免，逐字比对相同段"
                                 + (f"，省略内容在附件 {_ref_note} 里"
                                    if _ref_note else "") + "）")
                 except Exception as _e:
