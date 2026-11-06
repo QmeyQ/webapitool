@@ -3294,13 +3294,27 @@ return Array.from(document.querySelectorAll('input[type="file"]')).map(
         "wav": ("audio/wav",), "mp4": ("video/mp4",),
     }
 
-    def _page_state(self) -> dict:
-        return probe_page_state(self.tab)
+    def _page_state(self, cache_ttl: float = 0.0) -> dict:
+        """页面状态探测。cache_ttl>0 时复用最近一次结果。
 
-    def _guard_page_usable(self, where: str):
-        """输入/上传前的硬守卫：错误页与登录墙没有任何成功可能，
-        立刻带真实原因失败，别再走"清空重写→分块→回退直输"的无用功。"""
-        st = self._page_state()
+        分片逐片填充、分块逐个上传都属于同一阶段：96 片各扫一遍全页按钮
+        纯属浪费（而且按钮数随已发消息增长，越到后面越贵）。同一轮内用
+        TTL 缓存，既留住"中途被踢出登录"的兜底，又不在发送循环里重复比对。"""
+        now = time.time()
+        cached = getattr(self, "_page_state_cache", None)
+        if cache_ttl > 0 and cached and (now - cached[0]) < cache_ttl:
+            return cached[1]
+        st = probe_page_state(self.tab)
+        self._page_state_cache = (now, st)
+        return st
+
+    def _guard_page_usable(self, where: str, cache_ttl: float = 0.0):
+        """页面可用性守卫：错误页与登录墙没有任何成功可能，立刻带真实原因
+        失败，别再走"清空重写→分块→回退直输"的无用功。
+
+        注意：真正的判定应该在策略阶段做一次（见 resolve_tab_for_model），
+        这里只是发送循环里的低成本兜底，必须传 cache_ttl 避免逐片重复比对。"""
+        st = self._page_state(cache_ttl=cache_ttl)
         if st["state"] in ("error_page", "need_login"):
             logger.error(f"[Page] {where} 中止：{st['detail']}")
             raise PageUnavailableError(st["state"], st["detail"])
@@ -3415,9 +3429,9 @@ return {msgs: msgs, ports: ports};
                       msg_selector: str = ""):
         if self._check_cancelled():
             return
-        # 错误页/登录墙下填充不可能成功：带真实原因立即失败，
-        # 不要浪费 30s 走"清空重写→分块 execCommand→回退直输"
-        self._guard_page_usable("填充")
+        # 硬判定在策略阶段已经做过（resolve_tab_for_model），这里只是低成本
+        # 兜底：中途被踢到登录墙/错误页时立刻停手，而不是每片重扫全页
+        self._guard_page_usable("填充", cache_ttl=5.0)
         # 写入与读回必须落在同一个元素上（多实例 composer，见 __pickEditor）
         try:
             self.tab.run_js(_EDITOR_RESOLVE_INSTALL_JS)
@@ -3622,7 +3636,7 @@ return {msgs: msgs, ports: ports};
 
         # 错误页/登录墙上没有 composer，站点也不会有文档上传口：
         # 此时"注入成功"只是 CDP 写掉了某个隐藏 input，附件永不出现
-        self._guard_page_usable("上传")
+        self._guard_page_usable("上传", cache_ttl=5.0)
 
         # 上传前清理残留：此前发送失败会在输入区堆附件（z.ai 上限 5 个，
         # 超限后发送按钮不生效），先移除旧的附件 chip
@@ -5647,7 +5661,13 @@ class BrowserCore:
             pass
         # 就绪等待：composer 没渲染就往下走，FILL 只会拿到
         # "找不到输入框/no-el"，然后被误判成站点控件问题去切号
-        self._wait_for_composer(tab, domain)
+        _st_ready = self._wait_for_composer(tab, domain)
+        # 页面可用性判定放在策略阶段做一次：在这里就停手，后面的上传、
+        # 分片、填充都不会再为同一个问题重复比对页面
+        if _st_ready.get("state") in ("error_page", "need_login"):
+            logger.error(f"[Page] 策略阶段判定页面不可用：{_st_ready['detail']}")
+            raise PageUnavailableError(_st_ready["state"],
+                                       _st_ready["detail"])
         # session_new：该消息指纹已有发送基准（_fp_last_payload）→ 续传
         # 轮（启用压缩）；否则新会话全量重放。与 tab 无关——原 fp 绑定
         # 命中/新开的等价判定（2026-11-05 删除切 tab 逻辑后保留语义）

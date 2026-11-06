@@ -9,6 +9,7 @@ test_msg_condense.py - 会话消息压缩模块单测
 """
 
 import sys
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -425,6 +426,56 @@ class TestToolListHatch:
         assert ck("https://chatgpt.com/c/abc123?x=1") == "abc123"
         assert ck("https://chatgpt.com/") == ""
         assert ck("https://chatgpt.com/c/abc123") != ck("https://chatgpt.com/c/zzz9")
+
+
+class TestPageProbeNotPerChunk:
+    """页面可用性判定属于策略阶段：发送循环里不得逐片重扫全页"""
+
+    def _ex(self, counter, state=None):
+        from browser_core import WorkflowExecutor
+
+        class T:
+            url = "https://chatgpt.com/"
+
+            def run_js(self, script, *a, **k):
+                counter.append(1)
+                return dict({"url": "https://chatgpt.com/", "err_code": "",
+                             "rich_editors": 1, "plain_textareas": 0,
+                             "login_ctas": 0, "btn_texts": "",
+                             "context_full": 0, "limit_text": ""},
+                            **(state or {}))
+        ex = object.__new__(WorkflowExecutor)
+        ex.tab = T()
+        return ex
+
+    def test_cached_within_ttl(self):
+        calls = []
+        ex = self._ex(calls)
+        for _ in range(96):      # 96 片的极端场景
+            ex._guard_page_usable("填充", cache_ttl=5.0)
+        assert len(calls) == 1, "同阶段必须复用页面状态，不应 96 次全页比对"
+
+    def test_uncached_probes_every_time(self):
+        calls = []
+        ex = self._ex(calls)
+        for _ in range(3):
+            ex._guard_page_usable("填充")
+        assert len(calls) == 3, "不传 TTL 时保持逐次真实探测"
+
+    def test_expired_cache_reprobes_and_raises(self):
+        """缓存过期后必须重探：中途被踢到登录墙要能立刻停手"""
+        from browser_core import PageUnavailableError
+        calls = []
+        ex = self._ex(calls)
+        ex._guard_page_usable("填充", cache_ttl=5.0)
+        ex._page_state_cache = (0.0, {})          # 强制过期
+        ex.tab.run_js = lambda script, *a, **k: dict(
+            {"url": "https://chatgpt.com/", "err_code": "",
+             "rich_editors": 0, "plain_textareas": 1, "login_ctas": 2,
+             "btn_texts": "登录|免费注册", "context_full": 0,
+             "limit_text": ""})
+        with pytest.raises(PageUnavailableError):
+            ex._guard_page_usable("填充", cache_ttl=5.0)
 
 
 if __name__ == "__main__":
