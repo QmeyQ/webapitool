@@ -497,23 +497,28 @@
                     <!-- 站点配置内容 -->
                     <div v-else class="space-y-4">
 
-                        <!-- 长内容策略面板：压缩 / 分片 / 附件（都按站点单独配） -->
+                        <!-- 站点配置折叠面板（与选择器/工作流同样的展开收起） -->
                         <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded">
-                            <div class="px-4 py-3 border-b dark:border-gray-700 flex justify-between items-start">
-                                <div>
-                                    <h3 class="font-semibold dark:text-white">📦 长内容：压缩 / 分片 / 附件</h3>
-                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                        这一站长内容的处理次序：先按"压缩下限"决定要不要压旧内容 →
-                                        再按<b>压缩后</b>的大小决定直发 / 切分片 / 走附件。
-                                        留空或 0 = 跟随全局默认。
-                                    </p>
+                            <div class="px-4 py-3 border-b dark:border-gray-700 flex justify-between items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700"
+                                 @click="siteConfigCollapsed = !siteConfigCollapsed">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span v-html="siteConfigCollapsed ? $icons.chevronDown : $icons.chevronUp"></span>
+                                    <h3 class="font-semibold dark:text-white">🧩 站点配置</h3>
+                                    <span class="text-sm text-gray-500 dark:text-gray-400">
+                                        ({{ siteConfigTouched > 0 ? siteConfigTouched + ' 项已覆盖' : '全部跟随全局默认' }})
+                                    </span>
+                                    <span class="text-xs text-gray-400 dark:text-gray-500">
+                                        压缩 / 分片 / 附件，留空即跟随全局默认
+                                    </span>
                                 </div>
-                                <button @click="resetSiteLongContent"
-                                        class="px-2 py-1.5 text-xs border dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 whitespace-nowrap">
-                                    全部恢复默认
-                                </button>
+                                <div @click.stop>
+                                    <button @click.stop="resetSiteLongContent"
+                                            class="px-2 py-1.5 text-xs border dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 whitespace-nowrap">
+                                        全部恢复默认
+                                    </button>
+                                </div>
                             </div>
-                            <div class="px-4 py-3 space-y-3">
+                            <div v-show="!siteConfigCollapsed" class="p-4 space-y-3">
 
                                 <div class="settings-row">
                                     <div class="settings-left">

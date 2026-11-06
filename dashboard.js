@@ -416,6 +416,7 @@ createApp({
             // 折叠面板状态
             selectorCollapsed: false,
             workflowCollapsed: false,
+            siteConfigCollapsed: false,
             
             // 浏览器状态
             browserStatus: {
@@ -488,6 +489,36 @@ createApp({
         
         currentConfig() {
             return this.currentDomain ? this.sites[this.currentDomain] : null
+        },
+
+        // 面板标题后的"几项已覆盖"：只统计**与全局默认不同**的值。
+        // ensureUploadCfg 会把 upload_config 的字段补齐，所以不能简单数键的个数，
+        // 否则每个站点都会显示"3 项已覆盖"，而实际上一个都没改过。
+        siteConfigTouched() {
+            const c = this.currentConfig
+            if (!c) return 0
+            const globals = {
+                CHUNK_CHARS: 12000,
+                MAX_CHUNKED_CHUNKS: 30,
+                CONDENSE_MIN_CHARS: 0,
+                CONDENSE_ENABLED: true
+            }
+            let n = 0
+            for (const [k, v] of Object.entries(globals)) {
+                const cur = c[k]
+                if (cur === undefined || cur === '' || cur === 0) continue
+                if (cur !== v) n++
+            }
+            const u = c.upload_config || {}
+            const uGlobals = {
+                enabled: true,
+                max_prompt_length: 2000,
+                max_file_size: 5242880
+            }
+            for (const [k, v] of Object.entries(uGlobals)) {
+                if (u[k] !== undefined && u[k] !== v) n++
+            }
+            return n
         },
         
         hasToken() {
