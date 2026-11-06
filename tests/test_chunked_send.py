@@ -31,7 +31,7 @@ class FakeExecutor:
         self.clicked = []
         self.fail_click_on = fail_click_on or set()
         self.fail_verify_on = fail_verify_on or set()
-        self.released = []
+        self.core = None    # 由 _run_chunks/_driver 挂上 BrowserCore，便于断言断点进度
         self.settled = 0
         self.cancel = False
         self._fill_submitted = False
@@ -72,17 +72,17 @@ class FakeExecutor:
         self.settled += 1
 
 
-def _run_chunks(prompt, limit=12000, ex=None, chunk_limit=None, **ex_kw):
+def _run_chunks(prompt, limit=12000, ex=None, chunk_limit=None, fk="", **ex_kw):
     ex = ex or FakeExecutor(**ex_kw)
     auto = BrowserCore.__new__(BrowserCore)
+    ex.core = auto          # 便于断言断点进度
     auto._should_stop_checker = lambda: ex.cancel
-    auto._fp_bind_release = lambda reason='': ex.released.append(reason)
-    # 替换真实等待（会在假 tab 上空转到 90s 超时）
+    # 真实等待（会在假 tab 上空转到 90s 超时）
     auto._wait_generation_settled = (
         lambda executor, timeout=90: setattr(
             executor, 'settled', executor.settled + 1))
     gen = BrowserCore._chunked_direct_send(
-        auto, ex, {'prompt': prompt},
+        auto, ex, {'prompt': prompt, 'session_fk': fk},
         {'input_box': '#in', 'send_btn': '#send'},
         chunk_limit=chunk_limit)
     list(gen)
@@ -137,21 +137,30 @@ def test_chunk_limit_param_overrides_default():
     assert ''.join(bodies) == prompt
 
 
-def test_click_failure_releases_fp():
+def test_click_failure_does_not_advance_progress():
+    """第 1 片点击失败：报错要带片号，断点更不能前进——
+    否则重试会从"以为已送达"的下一片开始，前面那片内容就永久丢了。
+    （早先这里断言 _fp_bind_release，那个接口已被 _chunk_progress 取代）"""
     ex = FakeExecutor(reject_over=99999)
     ex.fail_click_on = {1}
-    with pytest.raises(WorkflowError):
-        _run_chunks('X' * 15000, ex=ex)
-    assert ex.released and '发送失败' in ex.released[0]
-    assert len(ex.clicked) == 1
+    with pytest.raises(WorkflowError) as ei:
+        _run_chunks('X' * 15000, ex=ex, fk='fk1')
+    assert '分片 1/2' in str(ei.value)
+    assert len(ex.clicked) == 1, "失败后不得继续点下一片"
+    assert (ex.core._chunk_progress.get('fk1') or {}).get('sent', 0) == 0
 
 
-def test_verify_failure_releases_fp():
+
+def test_verify_failure_does_not_advance_progress():
+    """点击没报错但校验判定"发送未生效"（复核消息数也没涨）：
+    同样必须报错并让断点停在 0，重试时该片重发"""
     ex = FakeExecutor(reject_over=99999)
     ex.fail_verify_on = {1}
-    with pytest.raises(WorkflowError):
-        _run_chunks('X' * 15000, ex=ex)
-    assert ex.released and '校验失败' in ex.released[0]
+    with pytest.raises(WorkflowError) as ei:
+        _run_chunks('X' * 15000, ex=ex, fk='fk1')
+    assert '发送未生效' in str(ei.value)
+    assert (ex.core._chunk_progress.get('fk1') or {}).get('sent', 0) == 0
+    assert len(ex.clicked) == 1, "校验失败后不得继续发下一片"
 
 
 def test_cancel_stops_cleanly():
@@ -160,7 +169,6 @@ def test_cancel_stops_cleanly():
     auto = BrowserCore.__new__(BrowserCore)
     ex2.cancel = True
     auto._should_stop_checker = lambda: True
-    auto._fp_bind_release = lambda reason='': None
     gen = BrowserCore._chunked_direct_send(
         auto, ex2, {'prompt': prompt}, {'input_box': '#in', 'send_btn': '#s'})
     list(gen)
@@ -182,7 +190,6 @@ def _driver(ex, store):
     auto = BrowserCore.__new__(BrowserCore)
     auto._should_stop_checker = lambda: ex.cancel
     auto._chunk_progress = store
-    auto._fp_bind_release = lambda reason='': ex.released.append(reason)
     auto._wait_generation_settled = (
         lambda executor, timeout=90: setattr(
             executor, 'settled', executor.settled + 1))

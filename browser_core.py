@@ -40,6 +40,7 @@ import subprocess
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
+import site_strategy as site_policy
 from typing import Generator, Optional, Dict, Any, List, Callable
 from dataclasses import dataclass
 from DrissionPage import ChromiumPage
@@ -94,9 +95,6 @@ class BrowserConstants:
         'DEFAULT_PORT': 9222,
         'CONNECTION_TIMEOUT': 10,
         'EDITOR_READY_TIMEOUT': 30,
-        # 工具表是否逐字送达（true）或参与压缩（false，默认）。
-        # 压缩时靠提示里那条 toollist 口令索取补发，每个任务只允许补一次。
-        'TOOL_TABLE_PROTECTED': False,
         # 单个请求最多能切多少片：96 片要发十几分钟，客户端早超时重试，
         # 每次重试又从头开始 → 永远停在第 1、2 片（2026-11-05 现场 1MB prompt）
         'MAX_CHUNKED_CHUNKS': 30,
@@ -299,6 +297,21 @@ if (hits.length) { out.login_ctas = hits.length; out.btn_texts = hits.slice(0, 3
 // 站点自身的"上下文窗口已达上限"横幅：必须同时命中「新聊天类按钮」和
 // 该按钮近邻容器里的上限文案。只看文案会把我们自己的 prompt（正文里常出现
 // "上下文"）和侧栏常驻的"新聊天"按钮误判成上限，只看按钮更不行。
+// 站点自身的提示区语料：composer 页脚 + alert/status + 生成指示区域。
+// 不能用整页 innerText 找受限文案——我们自己的 prompt 里就带 rate limit
+// 之类的日志文本，会把正常轮次误判成账号受限（2026-11-06 实测 tail 落在
+// 对话正文里，banner 却在轮内/页脚，位置不固定）。
+var bannerBits = [];
+var bs = document.querySelectorAll(
+  '[role="alert"],[role="status"],[aria-live="polite"],[aria-live="assertive"],'
+  + 'form div[class*="footer" i],div[class*="thread-scroll" i] > div[class*="footer" i]');
+for (var z = 0; z < bs.length && bannerBits.length < 8; z++) {
+  var tz = (bs[z].innerText || '').replace(/\s+/g, ' ').trim();
+  if (tz.length > 8 && tz.length < 400) { bannerBits.push(tz); }
+}
+out.banner = bannerBits.join(' | ').slice(0, 1600);
+out.head = (bt || '').slice(0, 300);
+out.tail = (bt || '').slice(-1500);
 out.context_full = 0;
 out.limit_text = '';
 function nearLimitText(e) {
@@ -319,6 +332,28 @@ for (var q = 0; q < btns.length; q++) {
   var hit = nearLimitText(btns[q]);
   if (hit) { out.context_full = 1; out.limit_text = hit; break; }
 }
+
+// 账号级用量上限（ChatGPT 免费版"每小时消息数已达上限"）：这条提示不总在
+// alert/footer 里，实测会作为对话流里的一条站点消息出现，旁边带「重试」按钮。
+// 和上面同样的思路——从站点按钮往上找近邻容器文案，容器文案长度必须 <400：
+// 爬到太高层 innerText 会把整段对话（含我们自己的 prompt，里面常出现
+// rate limit 字样）纳进来，那时长度早就超限，正好挡住误判。
+function nearUsageText(e) {
+  var n2 = e;
+  for (var d = 0; d < 6 && n2; d++) {
+    var t = (n2.innerText || '').replace(/\s+/g, ' ').trim();
+    if (t.length > 0 && t.length < 400) {
+      out.limit_hits.push(t.slice(0, 200));
+    }
+    n2 = n2.parentElement;
+  }
+}
+out.limit_hits = [];
+var retryRe = /^(重试|retry|再试一次|try again|刷新页面?|reload)$/i;
+for (var w = 0; w < btns.length && out.limit_hits.length < 4; w++) {
+  var lab2 = (btns[w].innerText || btns[w].getAttribute('aria-label') || '').trim();
+  if (retryRe.test(lab2)) { nearUsageText(btns[w]); }
+}
 return out;
 """
 
@@ -330,9 +365,13 @@ _PAGE_STATE_MEANING = {
 }
 
 
-def probe_page_state(tab) -> dict:
+def probe_page_state(tab, domain: str = "") -> dict:
     """只读探测当前标签页可用性：ok / error_page / need_login /
-    no_editor / unknown。探测失败一律 unknown，绝不因守卫误伤正常站点。"""
+    no_editor / usage_limited / unknown。探测失败一律 unknown，绝不因守卫误伤正常站点。
+
+    状态判定本身在 site_strategy.classify 里（各站文案表集中管理），
+    这里只负责把状态翻译成人话 detail。context_full 不改 state：
+    页面照样可输入可发送，站点只是静默丢上文，调用方按标记处理。"""
     if tab is None:
         return {"state": "unknown", "detail": "无标签页"}
     try:
@@ -344,26 +383,31 @@ def probe_page_state(tab) -> dict:
         return {"state": "unknown", "detail": f"探测失败: {e}"}
     if not isinstance(d, dict):
         return {"state": "unknown", "detail": ""}
-    url = str(d.get("url") or "")
-    if (url.startswith("chrome-error://")
-            or url.startswith("about:neterror") or d.get("err_code")):
+    state = site_policy.classify(domain or "", d)
+    if state == site_policy.USAGE_LIMITED:
+        return {"state": "usage_limited", "raw": d,
+                "detail": ("账号受限（站点提示达到用量上限）："
+                           + str(d.get("limit_text")
+                                 or (d.get("limit_hits") or [""])[0]
+                                 or d.get("banner") or "")[:90]),
+                "cooldown": site_policy.cooldown_for(domain or "")}
+    if state == site_policy.UNREACHABLE:
+        url = str(d.get("url") or "")
         return {"state": "error_page", "raw": d,
                 "detail": (f"站点页面加载失败 "
                            f"({d.get('err_code') or '错误页'}，"
                            f"当前 URL {url[:60]})")}
     # 登录 CTA 与富文本编辑器分开判定：ChatGPT 登出态页面上仍有一个
     # textarea 占位，只按"有没有输入控件"会被误判成可用页面
-    if d.get("login_ctas") and not d.get("rich_editors"):
+    if state == site_policy.NEED_LOGIN:
         return {"state": "need_login", "raw": d,
                 "detail": (f"页面停在登录墙（出现 "
                            f"{d.get('btn_texts') or '登录/注册'} 入口，"
                            "且没有真正的富文本编辑器）")}
-    if not (d.get("rich_editors") or d.get("plain_textareas")):
+    if state == site_policy.NO_EDITOR:
         return {"state": "no_editor", "raw": d,
                 "detail": "页面上没有可见输入控件"}
     st = {"state": "ok", "raw": d, "detail": ""}
-    # 上下文上限不改 state（页面照样可输入可发送，站点只是静默丢上文），
-    # 只带一个标记：调用方据此新起对话并停用压缩
     if d.get("context_full"):
         st["context_full"] = True
         st["limit_text"] = str(d.get("limit_text") or "")[:140]
@@ -655,7 +699,10 @@ class CreditStateStore:
         k = f"{(domain or '').lower()}:{port}"
         m = (model or '').strip()
         return f"{k}:{m}" if m else k
-    _FILE = Path(__file__).resolve().parent / "credit_state.json"
+    # WAPI_STATE_DIR 只给测试用：不隔离的话单测会把"积分耗尽"真的写进
+    # 生产运行时状态，线上账号就此被无理由跳过（且 git 里的状态文件被污染）
+    _FILE = (Path(os.environ.get("WAPI_STATE_DIR")
+                  or Path(__file__).resolve().parent) / "credit_state.json")
     _lock = threading.Lock()
     _cache = None
 
@@ -2421,13 +2468,6 @@ class ToolRoundBuilder:
             + json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
         )
 
-    # 工具表被压缩省略时的那一条提示：写成一条、带上"每任务限一次"，
-    # 既让 AI 知道怎么索取，也防止它反复要。
-    TOOL_LIST_TOKEN = "toollist"
-    TOOL_LIST_REMINDER = (
-        "〔提示1〕工具表若已被省略而你想不起有哪些工具，只回复 toollist"
-        "索取（不要附带其他内容），我会补发完整清单；每个任务限索取一次，"
-        "之后请正常继续。\n\n")
 
     @staticmethod
     def build(messages: List[Dict], tools: Optional[List[Dict]] = None,
@@ -3296,7 +3336,8 @@ return Array.from(document.querySelectorAll('input[type="file"]')).map(
         "wav": ("audio/wav",), "mp4": ("video/mp4",),
     }
 
-    def _page_state(self, cache_ttl: float = 0.0) -> dict:
+    def _page_state(self, cache_ttl: float = 0.0,
+                  domain: str = "") -> dict:
         """页面状态探测。cache_ttl>0 时复用最近一次结果。
 
         分片逐片填充、分块逐个上传都属于同一阶段：96 片各扫一遍全页按钮
@@ -3306,18 +3347,19 @@ return Array.from(document.querySelectorAll('input[type="file"]')).map(
         cached = getattr(self, "_page_state_cache", None)
         if cache_ttl > 0 and cached and (now - cached[0]) < cache_ttl:
             return cached[1]
-        st = probe_page_state(self.tab)
+        st = probe_page_state(self.tab, domain)
         self._page_state_cache = (now, st)
         return st
 
-    def _guard_page_usable(self, where: str, cache_ttl: float = 0.0):
+    def _guard_page_usable(self, where: str, cache_ttl: float = 0.0,
+                             domain: str = ""):
         """页面可用性守卫：错误页与登录墙没有任何成功可能，立刻带真实原因
         失败，别再走"清空重写→分块→回退直输"的无用功。
 
         注意：真正的判定应该在策略阶段做一次（见 resolve_tab_for_model），
         这里只是发送循环里的低成本兜底，必须传 cache_ttl 避免逐片重复比对。"""
-        st = self._page_state(cache_ttl=cache_ttl)
-        if st["state"] in ("error_page", "need_login"):
+        st = self._page_state(cache_ttl=cache_ttl, domain=domain)
+        if st["state"] in ("error_page", "need_login", "usage_limited"):
             logger.error(f"[Page] {where} 中止：{st['detail']}")
             raise PageUnavailableError(st["state"], st["detail"])
         return st
@@ -5273,6 +5315,10 @@ class BrowserCore:
             for _ in range(30):
                 time.sleep(1)
                 if self._port_open(port):
+                    # 端口通 ≠ 页面就绪：Chrome 刚起来时 ChatGPT 先渲染
+                    # 未登录静态外壳，十几秒后才水合成已登录应用。
+                    # _wait_for_composer 用这个时间戳放宽判定
+                    self._chrome_launched_ts = time.time()
                     return True
             return False
         except Exception as e:
@@ -5315,9 +5361,9 @@ class BrowserCore:
         except Exception:
             return None
 
-    def page_state(self) -> dict:
+    def page_state(self, domain: str = "") -> dict:
         """当前实例页面可用性（main 侧决定是否换账号前先问这个）。"""
-        return probe_page_state(self.current_tab())
+        return probe_page_state(self.current_tab(), domain)
 
     def health_check(self) -> Dict[str, Any]:
         result = {
@@ -5378,6 +5424,21 @@ class BrowserCore:
             pass
         return [{"name": "main", "port": BrowserConstants.get('DEFAULT_PORT')}]
 
+    def _probe_candidate(self, tab, domain: str,
+                        budget: float = 12.0) -> dict:
+        """候选账号要探到"结论性状态"才算数。
+
+        Chrome 刚被拉起时 DrissionPage 会抛"页面被刷新"，探测只能得到
+        unknown；把 unknown 当成可用切过去，等于把请求交给一个还停在登录墙
+        的窗口（18:10 实测：唯一登录着的账号被误判成登录墙后切给刚启动的
+        acc4，整条链路就此停在登录墙上）。"""
+        st = probe_page_state(tab, domain)
+        t0 = time.time()
+        while st.get("state") == "unknown" and time.time() - t0 < budget:
+            time.sleep(2.0)
+            st = probe_page_state(tab, domain)
+        return st
+
     def switch_instance(self, exclude_port: Optional[int] = None,
                         site_domain: Optional[str] = None,
                         exclude_ports: Optional[set] = None,
@@ -5389,8 +5450,8 @@ class BrowserCore:
         site_domain 指定时跳过积分耗尽的账号：credit_models 给出时
         （同站点候选模型列表），所有候选模型都耗尽才跳过该账号；
         未给出时沿用站点级记录判断。
-        切换成功后关闭原账号的浏览器窗口：不可用的账号不再留着窗口
-        占位（profile 保留，之后需要时可按 profile 再次自动拉起）。"""
+        候选账号必须探到"可用"才切过去，且**不关闭原实例窗口**：
+        留着可切回（22:55 那次把唯一登录着的窗口 quit 掉，链路整体挂死）。"""
         old_port = self.port
         old_page = self.page
         for inst in self.list_instances():
@@ -5408,6 +5469,20 @@ class BrowserCore:
                     logger.info(f"[Instance] 实例 {inst.get('name')} "
                                 f"(:{port}) {site_domain} 候选模型积分均未重置，跳过")
                     continue
+            # 冷却中的受限账号最先排除：换过去也只是把受限提示再看一遍，
+            # 而且这里跳过得越早，越不会为一个用不了的账号去拉起 Chrome
+            _cand_domain = site_domain or getattr(self, "site_domain", "") or ""
+            try:
+                if _cand_domain and site_policy.account_state.is_limited(
+                        _cand_domain, port):
+                    _rm_min = (site_policy.account_state.remaining(
+                        _cand_domain, port) / 60.0)
+                    logger.warning(
+                        f"[Instance] 候选 {inst.get('name')} (: {port}) "
+                        f"处于受限冷却（剩余 {_rm_min:.0f} 分钟），跳过")
+                    continue
+            except Exception as _ae:
+                logger.warning(f"[Instance] 受限状态读取异常(:{port}): {_ae}")
             # 先用 socket 探测端口：DrissionPage 连不上时会自作主张
             # 拉起一个新 Chrome（空 profile、未登录），必须避免；
             # 端口不通但实例配置了 user_data_dir → 按账号 profile
@@ -5445,11 +5520,16 @@ class BrowserCore:
             # 这里没查：一次瞬时"发送按钮未启用 + 消息未上屏"造成零输出，
             # 于是切到未登录的 acc2，又把唯一登录着的 acc3 窗口 quit 掉，
             # 此后每个请求都停在登录墙上。
-            try:
-                _cand = probe_page_state(probe.latest_tab)
-            except Exception:
-                _cand = {"state": "unknown", "detail": ""}
-            if _cand.get("state") in ("need_login", "error_page"):
+            _cand = self._probe_candidate(probe.latest_tab, _cand_domain)
+            # 候选页面上就写着"已到上限" → 顺手登记冷却，下一轮不必再连一次
+            if _cand.get("state") == "usage_limited":
+                try:
+                    site_policy.account_state.mark_limited(
+                        _cand_domain, port,
+                        float(_cand.get("cooldown") or 3600.0))
+                except Exception as _me:
+                    logger.warning(f"[Instance] 受限登记失败(:{port}): {_me}")
+            if _cand.get("state") != "ok":
                 logger.warning(
                     f"[Instance] 候选 {inst.get('name')} (: {port}) 不可用："
                     f"{_cand.get('detail') or _cand['state']}，跳过")
@@ -5532,12 +5612,21 @@ class BrowserCore:
                 timeout = 30
         # ChatGPT 一进来先渲染带"登录/免费注册"的静态外壳，几秒后才水合成
         # 已登录应用；need_login 要连续成立一段时间才算真的未登录，
-        # 否则水合期会被误判成登录墙（18:09 实测把登录着的 acc3 判死）。
-        grace = 10.0
+        # 否则水合期会被误判成登录墙（18:09 实测把登录着的账号判死）。
+        # Chrome 刚被自动拉起时水合更慢（要完整冷启动 + 首屏会话恢复），
+        # 10s 稳定期不够，于是把登录墙判给一个其实登录着的账号并切走，
+        # 结果整条链路停在登录墙上——冷却要长、超时也要长
+        cold = (time.time() - float(getattr(self, "_chrome_launched_ts", 0) or 0)
+                < 180)
+        grace = 45.0 if cold else 10.0
+        if cold:
+            timeout = max(int(timeout or 30), 90)
         t0 = time.time()
-        st = probe_page_state(tab)
+        st = probe_page_state(tab, domain)
         login_since = None
-        while st.get("state") not in ("ok", "error_page") \
+        # usage_limited 也是终止态：composer 就在页面上，站点已经把话说完了，
+        # 再等 30s 只是让每个请求多撞一次上限
+        while st.get("state") not in ("ok", "error_page", "usage_limited") \
                 and time.time() - t0 < max(3, timeout):
             if st.get("state") == "need_login":
                 if login_since is None:
@@ -5547,7 +5636,7 @@ class BrowserCore:
             else:
                 login_since = None
             time.sleep(1.0)
-            st = probe_page_state(tab)
+            st = probe_page_state(tab, domain)
         waited = time.time() - t0
         if st.get("state") == "ok":
             if waited > 1.5:
@@ -5558,6 +5647,69 @@ class BrowserCore:
                 f"[Route] {domain} 页面未就绪（等待 {waited:.1f}s）："
                 f"{st.get('detail') or st.get('state')}")
         return st
+
+    def _mark_account_limited(self, domain: str, st: dict) -> None:
+        """把当前账号打进冷却。不记的话每个请求都拿同一个受限账号硬撞，
+        而"受限"只是页面文案，代码层看不见哪个账号还剩配额。"""
+        pol = site_policy.policy(st.get("state", ""), domain)
+        try:
+            until = site_policy.account_state.mark_limited(
+                domain, self.port,
+                float(st.get("cooldown") or (pol.cooldown if pol else 0)
+                      or 3600.0))
+            logger.warning(
+                f"[Site] :{self.port} 在 {domain} 受限，冷却至 "
+                f"{time.strftime('%m-%d %H:%M', time.localtime(until))}")
+        except Exception as e:
+            logger.warning(f"[Site] 受限标记失败: {e}")
+
+    def _rotate_to_usable_account(self, domain: str, entry: str,
+                                  st: dict):
+        """账号级不可用（受限/未登录）时在策略阶段就换到可用账号。
+
+        此刻还没有发送任何内容，切号不会丢上下文也不会重发；而 main 的重试
+        循环在异常抛出后已经没有机会重选账号了，所以换号必须发生在这里。
+        switch_instance 会跳过冷却中的候选并顺手登记新发现的受限账号，
+        因此每个账号最多被试一次。客户端取消时立刻停手（取消后的切号曾造成
+        "拉起新 Chrome + 关旧窗口"的连环事故）。返回 (tab, 最新状态)。"""
+        tried = {int(self.port or 0)}
+        last = st
+        # 起点账号先登记（受限的话）：不登记的话下一个请求还会撞上它
+        _p0 = site_policy.policy(st.get("state", ""), domain)
+        if _p0 and _p0.mark_limited:
+            self._mark_account_limited(domain, st)
+        tab = self.get_active_tab()
+        for _ in range(max(1, len(self.list_instances()))):
+            if self._should_stop_checker():
+                logger.info("[Site] 客户端已取消，停止换账号")
+                break
+            if not self.switch_instance(exclude_port=self.port,
+                                        exclude_ports=set(tried),
+                                        site_domain=domain):
+                logger.warning("[Site] 没有更多可切换的账号实例")
+                break
+            tried.add(int(self.port or 0))
+            tab = self.get_active_tab()
+            try:
+                if domain not in (getattr(tab, "url", "") or "").lower():
+                    logger.info(f"[Site] 新账号页不在 {domain}，导航到 {entry}")
+                    tab.get(entry)
+                    time.sleep(4)
+            except Exception as e:
+                logger.warning(f"[Site] 新账号导航失败: {e}")
+            st = self._wait_for_composer(tab, domain)
+            if st.get("state") != "ok":
+                # 只有探到"可用"才算找到账号：unknown / no_editor 只是没渲染，
+                # 切过去等于换个地方失败
+                _p = site_policy.policy(st.get("state", ""), domain)
+                if _p and _p.mark_limited:
+                    self._mark_account_limited(domain, st)
+                continue
+            logger.warning(
+                f"[Site] 已切换到可用账号 "
+                f"{getattr(self, 'instance_name', '?')}:{self.port}")
+            return tab, st
+        return tab, last
 
     def resolve_tab_for_model(self, model: Optional[str], messages=None):
         """按 model id 解析目标站点与发消息 tab。
@@ -5664,9 +5816,15 @@ class BrowserCore:
         # 就绪等待：composer 没渲染就往下走，FILL 只会拿到
         # "找不到输入框/no-el"，然后被误判成站点控件问题去切号
         _st_ready = self._wait_for_composer(tab, domain)
-        # 页面可用性判定放在策略阶段做一次：在这里就停手，后面的上传、
-        # 分片、填充都不会再为同一个问题重复比对页面
-        if _st_ready.get("state") in ("error_page", "need_login"):
+        # 策略阶段一次判定 + 一次处置（site_strategy.policy 决定动作）：
+        # 受限/未登录这类"账号级"问题在这里就登记并换号，后面的上传、分片、
+        # 填充不再为同一个问题重复比对页面
+        _pol = site_policy.policy(_st_ready.get("state", ""), domain)
+        if _pol and _pol.rotate:
+            tab, _st_ready = self._rotate_to_usable_account(
+                domain, entry, _st_ready)
+        if _st_ready.get("state") in ("error_page", "need_login",
+                                      "usage_limited"):
             logger.error(f"[Page] 策略阶段判定页面不可用：{_st_ready['detail']}")
             raise PageUnavailableError(_st_ready["state"],
                                        _st_ready["detail"])
@@ -5878,12 +6036,6 @@ class BrowserCore:
             raw_prompt = ToolRoundBuilder.build(
                 effective_messages, tools, tool_choice,
                 protocol_mode="always_table", think_hint=think_hint)
-            # 只有把工具表交给压缩时（TOOL_TABLE_PROTECTED=false）才需要那行
-            # 取回说明；正常情况工具表逐字送达，不必每轮多占 117 字
-            if tools and BrowserConstants.get(
-                    'TOOL_TABLE_PROTECTED') is False:
-                raw_prompt = (ToolRoundBuilder.TOOL_LIST_REMINDER
-                              + raw_prompt)
 
             # —— 会话消息压缩（msg_condense）——
             # IDE 每轮重放完整历史（系统规则+工具轮次），prompt 数万字且
@@ -5946,20 +6098,15 @@ class BrowserCore:
                         # "always_table") 下 tools 非空必带 protocol；
                         # hint 条件与 is_tool_continuation 一致，
                         # "+2" 对应 parts 间的 "\n\n" 分隔符。
-                        # 工具表必须逐字送达：网页 AI 看不到 bash / cmd 等声明
-                        # 就不会发起调用，上游复现成"没有可用工具"或只回九个字。
-                        # 曾试过把工具表交给压缩 + toollist 口令兜底，实测不可靠
-                        # （12:45 一轮"可用工具 12 个"→ 12:48 calls=0），
-                        # 故默认豁免，只留 TOOL_TABLE_PROTECTED=false 作为实验开关。
+                        # 工具表必须逐字送达，不参与压缩。试过"压缩 + 口令索取
+                        # 补发"，两次都出事：一次 AI 不回口令只回几个字（上游表现
+                        # 为"没有可用工具"），一次补发本身把请求打成零输出，进而
+                        # 触发刷新自恢复，会话被刷回新对话、上下文全丢，客户端
+                        # 重试就变成把十几万字重发一遍的死循环（11:43 实锤）。
                         _protect = 0
                         if tools:
-                            if (BrowserConstants.get(
-                                    'TOOL_TABLE_PROTECTED') is not False):
-                                _protect += len(
-                                    ToolRoundBuilder.tool_protocol(tools)) + 2
-                            else:
-                                _protect += len(
-                                    ToolRoundBuilder.TOOL_LIST_REMINDER)
+                            _protect += len(
+                                ToolRoundBuilder.tool_protocol(tools)) + 2
                         if think_hint:
                             _protect += len(
                                 ToolRoundBuilder.DEEP_THINK_HINT) + 2
@@ -6318,28 +6465,6 @@ class BrowserCore:
                         # 走到这里说明发送已确认（或已自动恢复）
                         _send_confirmed = True
 
-                    # 工具清单取回通道：AI 只回 toollist 就说明它没看到清单
-                    # （工具表被压缩省略了），当场补发完整清单并继续监听，
-                    # 让它在同一个会话里正常作答；每轮至多补发一次
-                    if (action in ("STREAM_WAIT", "STREAM_OUTPUT")
-                            and tools
-                            and self._tool_resupply_allowed(_fk)):
-                        if self._ai_asks_tool_list(
-                                getattr(executor, "_final_complete_text", "")):
-                            self._mark_tool_resupplied(_fk)
-                            logger.info(
-                                "[ToolList] 网页 AI 回复 toollist，"
-                                "补发完整工具清单（本任务仅此一次）")
-                            if self._resupply_tool_list(
-                                    executor, tools, selectors, context):
-                                yield from executor.execute_step(
-                                    action="STREAM_WAIT",
-                                    selector=selectors.get(
-                                        "result_container", ""),
-                                    target_key="result_container",
-                                    value=None, optional=True,
-                                    context=context)
-                            continue
 
             finally:
                 if not getattr(executor, "_already_finished", False):
@@ -6489,9 +6614,6 @@ class BrowserCore:
         或从第 N 片起发而前 N-1 片根本不在会话里，表现为"失忆"或死循环。"""
         if not fk:
             return
-        used = getattr(self, '_tool_resupplied', None)
-        if isinstance(used, set):
-            used.discard(fk)
         for attr in ('_fp_last_payload', '_fp_attach', '_chunk_progress'):
             m = getattr(self, attr, None)
             if isinstance(m, dict) and m.pop(fk, None) is not None:
@@ -6520,8 +6642,12 @@ class BrowserCore:
         侧栏常驻的"新聊天"按钮或我们自己 prompt 里的"上下文"字样误判成上限。
         """
         try:
-            st = probe_page_state(tab)
-        except Exception:
+            st = probe_page_state(
+                tab, site_policy.host_of(getattr(tab, "url", "") or ""))
+        except Exception as _pe:
+            # 这里曾因 domain 缺失触发 KeyError 并被静默吞掉，表现是
+            # "上下文已达上限"永不处理——判定异常必须留痕
+            logger.warning(f"[CtxLimit] 页面状态探测失败: {_pe}")
             return False
         if not st.get("context_full"):
             return False
@@ -6549,57 +6675,10 @@ class BrowserCore:
             logger.warning(f"[CtxLimit] 点击新聊天失败: {e}")
         return True
 
-    def _ai_asks_tool_list(self, text: str) -> bool:
-        """AI 这一轮是否就是在索要工具清单（整条回复只有 toollist 口令）。
 
-        必须严格相等：正常回答里也可能提到 toollist 或工具名，误判会凭空
-        多补发一轮工具表，白烧字数与时间。"""
-        t = (text or "").strip().strip("`*＿_—- \u3000").lower()
-        t = t.rstrip("。.!！?？,，~～")
-        return t == ToolRoundBuilder.TOOL_LIST_TOKEN
 
-    def _tool_resupply_allowed(self, fk: str) -> bool:
-        """补发工具清单的额度：每个任务只允许一次。
 
-        额度记在任务键上而不是单次请求上——分片任务被客户端超时打断后续传
-        属于同一个任务，重连不能再来一次，否则 AI 反复索取会把会话刷满。"""
-        if not fk:
-            return True
-        return fk not in (getattr(self, "_tool_resupplied", None) or set())
 
-    def _mark_tool_resupplied(self, fk: str):
-        if not fk:
-            return
-        used = getattr(self, "_tool_resupplied", None)
-        if used is None:
-            used = self._tool_resupplied = set()
-        used.add(fk)
-        while len(used) > 64:
-            used.discard(next(iter(used)))
-
-    def _resupply_tool_list(self, executor, tools, selectors, context) -> bool:
-        """把完整工具清单补发进同一会话（工具表被压缩省略时的取回通道）。"""
-        try:
-            block = ("〔完整工具清单〕下面是本轮真实可用的工具与调用格式，"
-                     "按原任务继续作答即可，不必再回复 toollist。\n\n"
-                     + ToolRoundBuilder.tool_protocol(tools))
-            executor._execute_fill(
-                selectors.get("input_box", ""), block,
-                target_key="input_box", optional=False,
-                msg_selector=(selectors.get("message_wrapper")
-                              or selectors.get("result_container") or ""))
-            for _c in executor.execute_step(
-                    action="CLICK",
-                    selector=selectors.get("send_btn", ""),
-                    target_key="send_btn", value=None,
-                    optional=True, context=context):
-                if _c:
-                    pass
-            logger.info(f"[ToolList] 已补发完整工具清单（{len(block)} 字符）")
-            return True
-        except Exception as e:
-            logger.warning(f"[ToolList] 补发工具清单失败: {e}")
-            return False
 
     def _do_upload(self, executor, context, upload_cfg, selectors=None,
                    session_fk: str = ""):
@@ -6887,6 +6966,15 @@ class BrowserCore:
         if fk:
             # 全部送达：断点清掉，否则下一份不同的 prompt 会被"续"到半空
             self._chunk_progress.pop(fk, None)
+        # 分片全部送达后重新抓取"发送前计数"。否则 _pre_stream_count 还停在
+        # 第 1 片之前，[Fast AI Pre] 会把上一片留下的短回复（"收到，请继续"
+        # 一类）当成本轮最终答案直接返回——实锤：6 片发完只回 15 字符。
+        try:
+            executor._capture_pre_stream_count(
+                selectors.get("result_container")
+                or selectors.get("message_wrapper") or "")
+        except Exception as _ce:
+            logger.debug(f"[Chunk] 重抓发送前计数失败: {_ce}")
         logger.info(f"[Chunk] {len(chunks)} 片全部发送完毕，等待 AI 统一回复")
 
     def _wait_generation_settled(self, executor, timeout: float = 90):

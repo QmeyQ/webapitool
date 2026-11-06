@@ -83,6 +83,7 @@ from browser_core import (get_browser, BrowserConnectionError,
                           BrowserConstants, CreditStateStore,
                           CREDIT_EXHAUSTED_RE, get_site_model_candidates,
                           PageUnavailableError, TooLongError)
+from site_strategy import account_state as site_account_state
 from config_engine import config_engine, ConfigConstants
 from request_manager import request_manager, RequestContext, RequestStatus, watch_client_disconnect
 from data_models import (
@@ -928,12 +929,23 @@ async def _stream_with_lifecycle(
                         logger.warning(
                             f"请求 [{ctx.request_id}] 重试后仍零输出（网页端可能未响应）")
             except PageUnavailableError as e:
-                # 页面本身不可用（错误页/未登录）：真因在会话或网络层，
-                # 不是选择器、也不是站点额度——换账号和改配置都无用
+                # 账号级问题（受限/未登录）已在策略阶段尝试过换号，走到这里
+                # 说明没有可用账号了；error_page 是机器级，换号本就无用
                 logger.error(
                     f"请求 [{ctx.request_id}] 页面不可用"
                     f"（{e.kind}）: {e.detail}")
-                chunk_queue.put(("ERROR", f"网页端不可用：{e.detail}"))
+                _msg = f"网页端不可用：{e.detail}"
+                if e.kind == "usage_limited":
+                    try:
+                        _snap = site_account_state.snapshot()
+                        if _snap:
+                            _msg += "；正在冷却的账号：" + "，".join(
+                                f"{k.split('|')[0] or '站点?'}"
+                                f"::{k.split('|')[1]}（{v}）"
+                                for k, v in _snap.items())
+                    except Exception:
+                        pass
+                chunk_queue.put(("ERROR", _msg))
             except TooLongError as e:
                 # 消息过长拒收：标记 (账号, 站点)，仪表盘可见可清除；
                 # 不切账号重试（长文本换账号同样超限）
@@ -1580,12 +1592,26 @@ async def get_instances(authenticated: bool = Depends(verify_auth)):
                     "exhausted_until": rec["exhausted_until"],
                 })
         credit_sites.sort(key=lambda r: (r["domain"], r["model"]))
+        # 账号级用量受限（ChatGPT 免费版每小时上限这类）：独立于积分记录，
+        # 到期自动恢复，不显示的话看起来就像账号无故被跳过
+        limited_sites = []
+        for _d in sites:
+            _until = site_account_state.until(_d, port)
+            if _until:
+                limited_sites.append({
+                    "domain": _d,
+                    "kind": "limited",
+                    "limited_until": _until,
+                    "reset_at": time.strftime('%m-%d %H:%M',
+                                              time.localtime(_until)),
+                })
         out.append({
             "name": inst.get("name"),
             "port": port,
             "user_data_dir": inst.get("user_data_dir"),
             "alive": _debug_port_alive(port),
             "credit_sites": credit_sites,
+            "limited_sites": limited_sites,
         })
     return {"instances": out, "chrome_path": _find_chrome_exe(), "sites": sites}
 
@@ -1597,10 +1623,14 @@ async def clear_credit_state(domain: str, port: int,
                              authenticated: bool = Depends(verify_auth)):
     """手动清除某账号在某站点的状态记录（立即恢复该账号可用）。
 
-    kind=toolong 清除消息过长拒收标记；默认清积分耗尽记录。
+    kind=toolong 清除消息过长拒收标记；kind=limited 清除账号级用量受限冷却；
+    默认清积分耗尽记录。
     model 不传时清除该账号在该站点全部模型的记录。"""
     if kind == "toolong":
         removed = CreditStateStore.clear_too_long(domain, port)
+    elif kind == "limited":
+        removed = site_account_state.clear(domain, port)
+        logger.info(f"[Site] 手动解除受限冷却 {domain} :{port} -> {removed}")
     else:
         removed = CreditStateStore.clear(domain, port, model=model)
     return {"status": "success", "removed": removed}
