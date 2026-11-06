@@ -5950,18 +5950,18 @@ class BrowserCore:
                         # （见 _resupply_tool_list）。
                         _protect = (len(ToolRoundBuilder.TOOL_LIST_REMINDER)
                                     if tools else 0)
-                        # 最新一轮用户消息绝不压缩：它是本轮唯一"必须新送达"
-                        # 的内容。站点在上下文超限时会静默把更早的上文与附件
-                        # 挤出模型窗口，此时拿它去比"重复"会把用户指令压成
-                        # 占位符，模型端直接看不到（2026-11-06 复现）。
-                        _mk = "\n[user]\n"
-                        _tp = raw_prompt.rfind(_mk)
-                        _head = raw_prompt[:_tp] if _tp > 0 else raw_prompt
-                        _tail = raw_prompt[_tp:] if _tp > 0 else ""
-                        _ch = condense(_head, _prev,
-                                       protect_prefix=_protect,
-                                       ref_note=_ref_note)
-                        _c = _ch + _tail if _tp > 0 else _ch
+                        # 压缩在"全部内容拼接完成"之后对整段做一次线性扫描：
+                        # 与已交付内容逐字相同的段压成 首两字..末两字，不同的
+                        # 原样留在原位。不再按"头部前缀 + 行块"两级判定——那套
+                        # 要求整行逐字相等且行长≥12，短行([user]、JSON 片段)
+                        # 永远匹配不上，一处短行就把大片重复切得压不动；
+                        # 也不再豁免"最后一条 user 整段"，OpenClaw 的大内容
+                        # 常落在最后一条 user 里，豁免它等于整轮不压缩。
+                        # 误压防护来自判定本身：只有与本对话已交付内容逐字相同
+                        # 才会省略，且基准按对话标识隔离、上下文超限时即作废。
+                        _c = condense(raw_prompt, _prev,
+                                      protect_prefix=_protect,
+                                      ref_note=_ref_note)
                         if _c != raw_prompt:
                             raw_prompt = _c
                             _condense_applied = True

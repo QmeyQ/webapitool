@@ -64,11 +64,16 @@ class TestCondense:
     def test_empty_new_returns_empty(self):
         assert condense("", _rule_block(5000)) == ""
 
-    def test_prefix_too_short(self):
-        # 60 字符规则 < MIN_PREFIX_LEN(100)，块级 54 字符 < MIN_BLOCK_LEN(100)
-        prev = _rule_block(60) + "OLD TAIL"
-        new = _rule_block(60) + "NEW TAIL"
-        assert condense(new, prev) == new
+    def test_short_run_not_compressed_long_run_is(self):
+        """不足 MIN_RUN 的相同段不压（占位符本身 6 字，压了不省）；够长才压。
+        段尾对齐换行，所以构造内容都带行尾。"""
+        from msg_condense import MIN_RUN
+        short = "短" * (MIN_RUN // 2) + "\n"
+        assert condense(short + "NEW\n", short + "OLD\n") == short + "NEW\n"
+        long = "长" * (MIN_RUN * 2) + "\n"
+        out = condense(long + "NEW\n", long + "OLD\n")
+        assert out != long + "NEW\n"
+        assert "NEW" in out and ".." in out
 
     def test_basic_compress(self):
         rules = _rule_block(8000)
@@ -78,21 +83,23 @@ class TestCondense:
         assert out != new, "前缀足够长时应压缩"
         assert "新增任务" in out, "尾部新增内容必须保留"
         assert "排序算法" in out
-        assert "省略" in out and "字符" in out, "占位符应说明省略量"
+        assert ".." in out, "相同段应压成 首两字..末两字"
+        assert "压缩说明" in out, "首次压缩应带一行图例说明"
         assert len(out) < len(new) // 2, "压缩应大幅缩短"
-        # 占位符里的省略数应≈前缀长度
-        import re
-        m = re.search(r"省略 (\d+) 字符", out)
-        assert m and abs(int(m.group(1)) - common_prefix_len(new, prev)) < 10
+        # 规格：相同段 = 首两字 + ".." + 末两字
+        plen = common_prefix_len(new, prev)
+        run = new[:plen]
+        assert run[:2] + ".." + run[-2:] in out
 
-    def test_min_savings_threshold(self):
-        # 自定义门槛：前缀 300 字符但 min_savings 要求省 5000 → 不压缩
-        rules = _rule_block(300)
-        prev = rules + "A" * 50
-        new = rules + "B" * 50
-        assert condense(new, prev, min_prefix=100, min_savings=5000) == new
-        # 同样内容放宽门槛 → 压缩
-        assert condense(new, prev, min_prefix=100, min_savings=10) != new
+    def test_no_all_or_nothing_bailout(self):
+        """旧实现有"总节省不够就一个字都不压"的整体放弃路径；
+        新实现按段结算：能压多少压多少，不同内容原样留在原位"""
+        rules = _rule_block(3000)
+        prev = rules + "A" * 60
+        new = rules[:200] + "B" * 80 + rules[200:] + "C" * 60
+        out = condense(new, prev)
+        assert out != new, "存在可压缩段就必须压缩"
+        assert "B" * 80 in out, "不同的一段必须原样保留"
 
     def test_identical_full_text(self):
         t = _rule_block(8000)
@@ -139,7 +146,7 @@ class TestBlockCondense:
         assert "动态时间戳" in out, "前缀截止处的内容必须保留"
         assert "本轮新增任务" in out, "新增内容必须保留"
         assert len(out) < len(new) - 1200, "中段重复块应被大幅压缩"
-        assert out.count("〔省略") >= 1, "应出现块级占位符"
+        assert out.count("..") >= 2, "差异前后可压缩的段应各自出现占位符"
 
     def test_head_and_block_combined(self):
         """头部前缀压缩与块级去重可同时生效"""
@@ -152,15 +159,14 @@ class TestBlockCondense:
         assert "NEW-TAIL" in out
         assert "PREV-TAIL" not in out
 
-    def test_min_block_threshold(self):
-        # 3 行 ≈ 81 字符 < 默认 MIN_BLOCK_LEN(100) → 不压缩
+    def test_81_char_run_is_compressed(self):
+        """81 字相同段 ≥ MIN_RUN → 压缩（旧实现按 100 字门槛会整体放弃）"""
         rules = _rule_block(81)
-        prev = rules + "\nOLD\n"
         new = rules + "\nNEW\n"
-        assert condense(new, prev) == new
-        # 放宽 min_block → 压缩
-        assert condense(new, prev, min_block=50, min_prefix=50,
-                        min_savings=10) != new
+        out = condense(new, rules + "\nOLD\n")
+        assert out != new
+        assert "NEW" in out and ".." in out
+
 
     def test_100_char_blocks_all_compressed(self):
         """用户需求：100 字符级别的重复段也要压缩，每个重复段都处理"""
@@ -172,7 +178,7 @@ class TestBlockCondense:
         out = condense(new, prev)
         assert out != new, "100+ 字符重复段应压缩"
         assert "NEW 本轮新增任务内容" in out, "新增内容必须保留"
-        assert "〔省略" in out, "块级占位符应出现"
+        assert ".." in out, "相同段应压成 首两字..末两字"
         assert "PREV 独有尾部内容" not in out
 
         # 多个分散的重复段各自独立压缩
@@ -183,7 +189,7 @@ class TestBlockCondense:
         prev2 = segA + "中间隔断A\n" + segB + "PREV 尾\n"
         new2 = segA + "中间隔断B\n" + segB + "NEW 尾\n"
         out2 = condense(new2, prev2)
-        assert out2.count("〔省略") == 2, "每个重复段都应各自压缩"
+        assert out2.count("..") == 2, "每个重复段都应各自压缩"
         assert "NEW 尾" in out2 and "中间隔断B" in out2
 
     def test_block_never_eats_new_content(self):
