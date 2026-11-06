@@ -94,6 +94,9 @@ class BrowserConstants:
         'DEFAULT_PORT': 9222,
         'CONNECTION_TIMEOUT': 10,
         'EDITOR_READY_TIMEOUT': 30,
+        # 工具表是否逐字送达（不参与压缩）。关掉它属于实验：靠 toollist 口令
+        # 取回清单，省字数但网页 AI 不一定照做，会表现为"没有可用工具"
+        'TOOL_TABLE_PROTECTED': True,
         # 单个请求最多能切多少片：96 片要发十几分钟，客户端早超时重试，
         # 每次重试又从头开始 → 永远停在第 1、2 片（2026-11-05 现场 1MB prompt）
         'MAX_CHUNKED_CHUNKS': 30,
@@ -5876,9 +5879,10 @@ class BrowserCore:
             raw_prompt = ToolRoundBuilder.build(
                 effective_messages, tools, tool_choice,
                 protocol_mode="always_table", think_hint=think_hint)
-            # 工具表本体改为可压缩（整张表每轮重发极占字数），改为在开头钉一行
-            # "取回说明"：这行永远原样发送，AI 发现清单没了能自己喊 toollist
-            if tools:
+            # 只有把工具表交给压缩时（TOOL_TABLE_PROTECTED=false）才需要那行
+            # 取回说明；正常情况工具表逐字送达，不必每轮多占 117 字
+            if tools and BrowserConstants.get(
+                    'TOOL_TABLE_PROTECTED') is False:
                 raw_prompt = (ToolRoundBuilder.TOOL_LIST_REMINDER
                               + raw_prompt)
 
@@ -5943,13 +5947,26 @@ class BrowserCore:
                         # "always_table") 下 tools 非空必带 protocol；
                         # hint 条件与 is_tool_continuation 一致，
                         # "+2" 对应 parts 间的 "\n\n" 分隔符。
-                        # 豁免区只放"取回说明"那一行。以前这里豁免整张工具表
-                        # （tool_protocol 全文），于是每轮都要把几千字的表重发
-                        # 一遍。现在工具表允许被压缩省略：AI 若因此看不到清单，
-                        # 按开头的说明回一句 toollist，中转就当场补发完整清单
-                        # （见 _resupply_tool_list）。
-                        _protect = (len(ToolRoundBuilder.TOOL_LIST_REMINDER)
-                                    if tools else 0)
+                        # 工具表必须逐字送达：网页 AI 看不到 bash / cmd 等声明
+                        # 就不会发起调用，上游复现成"没有可用工具"或只回九个字。
+                        # 曾试过把工具表交给压缩 + toollist 口令兜底，实测不可靠
+                        # （12:45 一轮"可用工具 12 个"→ 12:48 calls=0），
+                        # 故默认豁免，只留 TOOL_TABLE_PROTECTED=false 作为实验开关。
+                        _protect = 0
+                        if tools:
+                            if (BrowserConstants.get(
+                                    'TOOL_TABLE_PROTECTED') is not False):
+                                _protect += len(
+                                    ToolRoundBuilder.tool_protocol(tools)) + 2
+                            else:
+                                _protect += len(
+                                    ToolRoundBuilder.TOOL_LIST_REMINDER)
+                        if think_hint:
+                            _protect += len(
+                                ToolRoundBuilder.DEEP_THINK_HINT) + 2
+                        if is_tool_continuation:
+                            _protect += len(
+                                ToolRoundBuilder.TOOL_CONTINUATION_HINT) + 2
                         # 压缩在"全部内容拼接完成"之后对整段做一次线性扫描：
                         # 与已交付内容逐字相同的段压成 首两字..末两字，不同的
                         # 原样留在原位。不再按"头部前缀 + 行块"两级判定——那套
