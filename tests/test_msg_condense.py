@@ -260,6 +260,11 @@ class TestAttachmentBaseline:
     """附件轮次也要参与压缩比对：上一轮写进 uploads 的附件原文就是基准。"""
 
     NAME = "prompt_1793900000_dead01.txt"
+    # 键必须带真实对话 id：没有对话 id 的键（IDE 指纹、裸串）一律不许当基准，
+    # 否则另一个同样停在根地址的会话会把别人的内容当成"本对话已交付"压掉
+    CK1 = "chatgpt.com:c-delhist"
+    CK2 = "chatgpt.com:c-registered"
+    CK3 = "chatgpt.com:c-file-gone"
 
     def _write_upload(self, text: str) -> Path:
         up = Path(__file__).resolve().parent.parent / "uploads"
@@ -277,7 +282,7 @@ class TestAttachmentBaseline:
             bc = object.__new__(BrowserCore)
             bc._fp_attach = {}
             got, label = bc._attachment_baseline(
-                "fk1", f"请完整阅读我上传的文件 {self.NAME} 后完成任务")
+                self.CK1, f"请完整阅读我上传的文件 {self.NAME} 后完成任务")
             assert got == text, "基准应等于附件原文"
             assert self.NAME in label
         finally:
@@ -290,9 +295,9 @@ class TestAttachmentBaseline:
         f = self._write_upload(text)
         try:
             bc = object.__new__(BrowserCore)
-            bc._fp_attach = {"fk2": {"names": [self.NAME],
-                                     "label": self.NAME}}
-            got, label = bc._attachment_baseline("fk2", "")
+            bc._fp_attach = {self.CK2: {"names": [self.NAME],
+                                        "label": self.NAME}}
+            got, label = bc._attachment_baseline(self.CK2, "")
             assert got == text and label == self.NAME
         finally:
             f.unlink(missing_ok=True)
@@ -303,8 +308,22 @@ class TestAttachmentBaseline:
         bc = object.__new__(BrowserCore)
         bc._fp_attach = {}
         got, _label = bc._attachment_baseline(
-            "fk3", f"上一轮的附件 {self.NAME}")
+            self.CK3, f"上一轮的附件 {self.NAME}")
         assert got == ""
+
+    def test_key_without_conversation_id_is_refused(self):
+        """没有对话 id 的键（历史遗留的 "fk1"、裸站点名）一律不比对"""
+        from browser_core import BrowserCore
+        text = "已交付的长内容" * 300
+        f = self._write_upload(text)
+        try:
+            bc = object.__new__(BrowserCore)
+            bc._fp_attach = {"fk1": {"names": [self.NAME], "label": self.NAME}}
+            got, _label = bc._attachment_baseline("fk1", "")
+            assert got == "", "无对话 id 的键不能拿到基准"
+            assert bc._attachment_baseline("chatgpt.com", "")[0] == ""
+        finally:
+            f.unlink(missing_ok=True)
 
 
 class TestCondenseRefNote:

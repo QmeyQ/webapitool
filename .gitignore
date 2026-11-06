@@ -19,10 +19,12 @@ universalweb-api-main
 # 账号受限冷却登记（运行时生成，到期自清，机器相关）
 site_state.json
 
-# 其余运行时状态：积分/过长标记记录与会话绑定，机器相关，入库只会造成
-# 每次跑测试都产生假 diff（测试已改为写临时目录）
+# 其余运行时状态：积分/过长标记记录、压缩基准（交付原文）与会话绑定，
+# 机器相关，入库只会造成每次跑测试都产生假 diff
+# （pack_state.json 存的是 IDE 提示词原文，属于用户内容，绝不入库）
 credit_state.json
 session_bindings.json
+pack_state.json
 
 # Python 字节码与测试缓存
 __pycache__/

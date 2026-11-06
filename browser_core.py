@@ -47,6 +47,11 @@ from DrissionPage import ChromiumPage
 
 import send_verify
 import chrome_launcher
+import prompt_packager
+from prompt_packager import PromptPackager, TooLongPlan
+from prompt_packager import STRATEGY_DIRECT as _P_DIRECT
+from prompt_packager import STRATEGY_FILE as _P_FILE
+from prompt_packager import STRATEGY_CHUNKED as _P_CHUNKED
 
 
 DIRECT_TOOL_DEBUG = False
@@ -225,17 +230,10 @@ def _plain_css(selector: str) -> str:
 def _conversation_key(url: str) -> str:
     """对话标识（会话路径尾段，如 chatgpt.com/c/<id> 的 <id>）。
 
-    压缩基准、附件登记、分片断点都必须绑到"具体哪一个对话"：换了对话
-    （点了新聊天、切了账号、重开标签）之后，前面那些内容就不再存在于模型
-    的上下文里，沿用旧基准就会把"其实没送达"的内容当成重复压掉。
-    新会话（无 /c/<id>）返回 ""，同一状态内稳定。"""
-    try:
-        u = (url or "").split("?")[0].split("#")[0]
-        path = u.split("://", 1)[-1].split("/", 1)[1] if "/" in u.split("://", 1)[-1] else ""
-        segs = [s for s in path.split("/") if s]
-        return segs[-1][:60] if segs else ""
-    except Exception:
-        return ""
+    实现放在 PromptPackager：键位规则只能有一份，否则"基准按 A 规则存、
+    是否续传按 B 规则查"就会各自判断（2026-11-06 现场即因此每轮点新聊天、
+    整份重发）。"""
+    return prompt_packager.conversation_id(url)
 
 
 def _resolve_profile_dir(raw: str) -> str:
@@ -5861,18 +5859,17 @@ class BrowserCore:
             logger.error(f"[Page] 策略阶段判定页面不可用：{_st_ready['detail']}")
             raise PageUnavailableError(_st_ready["state"],
                                        _st_ready["detail"])
-        # session_new：该消息指纹已有发送基准（_fp_last_payload）→ 续传
-        # 轮（启用压缩）；否则新会话全量重放。与 tab 无关——原 fp 绑定
-        # 命中/新开的等价判定（2026-11-05 删除切 tab 逻辑后保留语义）
-        fp = self._session_fp(messages)
-        _cv = _conversation_key(getattr(tab, "url", "") or "")
-        fk = (f"{domain}:{fp}:{_cv}" if (fp and _cv)
-              else (f"{domain}:{fp}" if fp else ""))
-        session_new = not (fk and (getattr(self, '_fp_last_payload', {})
-                                   or {}).get(fk))
+        # session_new 判据：**这个网页对话**有没有已交付基准。
+        # 键位绝不能掺 IDE 会话指纹——IDE 每轮重放时最后一条消息一变，
+        # 指纹就变，按指纹判"新会话"会让工作流每轮点「新聊天」，把前几轮
+        # 刚交付的几万字丢掉再整份重发（2026-11-06 现场：218,684 字符
+        # 未压缩附件、上游表现为"没有可用工具/权限不对"）。
+        ckey = prompt_packager.conv_key(domain, getattr(tab, "url", "") or "")
+        session_new = not (ckey and (getattr(self, '_fp_last_payload', {})
+                                     or {}).get(ckey))
         logger.info(
             f"[Route] model={model} -> {domain} "
-            f"({'新会话' if session_new else '续传'})")
+            f"({'新会话' if session_new else '续传'} {ckey})")
         return tab, domain, session_new
 
 
@@ -6063,179 +6060,71 @@ class BrowserCore:
             else:
                 effective_messages = messages
 
-            # 附件场景：每轮上传的都是新文件，网页端会话记忆里未必看得到
-            # 历史轮次的工具表 → 续传轮也在 prompt 末尾带工具表（附件体
-            # 积大，多 1-2KB 工具表占比小；输入框仍只有短提示不膨胀）
-            raw_prompt = ToolRoundBuilder.build(
-                effective_messages, tools, tool_choice,
-                protocol_mode="always_table", think_hint=think_hint)
-
-            # —— 会话消息压缩（msg_condense）——
-            # IDE 每轮重放完整历史（系统规则+工具轮次），prompt 数万字且
-            # 与上一轮几乎相同，导致每条消息都要分片。对比本会话上一轮
-            # 实际发送的原文，公共前缀替换为占位符只发增量尾部——网页
-            # 会话里前文都在，AI 可直接读会话上文。仅续聊同 tab 时启用
-            # （新会话新 tab 必须全量发）；压缩后长度下降，多数轮次不再
-            # 触发分片/上传。
-            _fk = ""
-            _condense_original = raw_prompt  # 压缩前原文（成功后记录用）
+            # —— 内容 → 压缩 → 打包策略：整条链交给 PromptPackager ——
+            # 规则集中在 prompt_packager.py：一定先压缩、再按**压缩后**的大小
+            # 决定 direct/file/chunked；比对基准按"网页端对话"存而不是按 IDE
+            # 会话指纹存；上一轮作为附件交付的内容从 uploads 把原文读回来参与
+            # 比对。这四段原先散在本函数里，各自记着一半规则，于是反复
+            # "修好这里坏那里"：2026-11-06 实测 IDE 换一个会话指纹就找不到
+            # 基准，218,684 字符整份未压缩落盘当附件，网页 AI 读不动，
+            # 上游表现就是"没有可用工具/权限不对"。
+            _condense_original = ""
             _condense_applied = False
             _send_confirmed = False
-            # fp 键必须无条件计算：首轮（新会话）也要在成功后记录交付
-            # 文本，否则下一轮永远没有比对基准、压缩永远不生效
-            try:
-                _fp0 = self._session_fp(messages)
-                _convk = _conversation_key(getattr(tab, "url", "") or "")
-                _fk = (f"{domain}:{_fp0}:{_convk}"
-                       if (_fp0 and _convk) else (f"{domain}:{_fp0}" if _fp0 else ""))
-            except Exception:
-                _fk = ""
+            _fp0 = self._session_fp(messages) or ""
+            # 键位只用"站点:对话id"（与 resolve_tab_for_model 同一规则），
+            # 同一网页对话里 IDE 换会话也要能压
+            _fk = prompt_packager.conv_key(domain,
+                                           getattr(tab, "url", "") or "")
             # 站点报"上下文窗口已达上限"→ 重开对话，并把本轮当新会话：
             # 压缩基准已被作废，跳过压缩才能把完整历史一次性发进新对话
             if self._handle_context_limit(tab, selectors, _fk):
                 session_new = True
-            if is_continuation and not session_new:
-                try:
-                    from msg_condense import condense
-                    _prev = ((getattr(self, '_fp_last_payload', {}) or {})
-                             .get(_fk, '')) if _fk else ''
-                    _ref_note = ""
-                    if _fk and not _prev:
-                        # 上一轮正文是作为附件交付的（内存里没留下全文基准）：
-                        # 去本地 uploads 把那个附件读回来比对
-                        _hist = ""
-                        try:
-                            _hist = "\n".join(
-                                str(m.get("content") or "")
-                                for m in (messages or [])[-12:]
-                                if isinstance(m, dict))
-                        except Exception:
-                            _hist = ""
-                        _prev, _ref_note = self._attachment_baseline(
-                            _fk, _hist[-200000:])
-                        if _prev:
-                            logger.info(
-                                f"[MsgCondense] 比对基准取自历史附件 "
-                                f"{_ref_note}（{len(_prev)} 字符）")
-                    elif _fk:
-                        # 基准在内存里，但上一轮内容是靠附件交付的：
-                        # 占位符同样要指向附件，否则 AI 在正文里找不到
-                        _ainfo = ((getattr(self, '_fp_attach', {}) or {})
-                                  .get(_fk) or {})
-                        _ref_note = _ainfo.get("label") or ""
-                    if _prev:
-                        # 协议区（工具表+深度思考指令+续传指令）豁免压缩：
-                        # 网页 AI 只细读最新消息，工具表被压进占位符后它
-                        # 看不到 cmd 等工具声明，就不会调用（上游复现为
-                        # "没有可用工具"）。build(protocol_mode=
-                        # "always_table") 下 tools 非空必带 protocol；
-                        # hint 条件与 is_tool_continuation 一致，
-                        # "+2" 对应 parts 间的 "\n\n" 分隔符。
-                        # 工具表必须逐字送达，不参与压缩。试过"压缩 + 口令索取
-                        # 补发"，两次都出事：一次 AI 不回口令只回几个字（上游表现
-                        # 为"没有可用工具"），一次补发本身把请求打成零输出，进而
-                        # 触发刷新自恢复，会话被刷回新对话、上下文全丢，客户端
-                        # 重试就变成把十几万字重发一遍的死循环（11:43 实锤）。
-                        _protect = 0
-                        if tools:
-                            _protect += len(
-                                ToolRoundBuilder.tool_protocol(tools)) + 2
-                        if think_hint:
-                            _protect += len(
-                                ToolRoundBuilder.DEEP_THINK_HINT) + 2
-                        if is_tool_continuation:
-                            _protect += len(
-                                ToolRoundBuilder.TOOL_CONTINUATION_HINT) + 2
-                        # 压缩在"全部内容拼接完成"之后对整段做一次线性扫描：
-                        # 与已交付内容逐字相同的段压成 首两字..末两字，不同的
-                        # 原样留在原位。不再按"头部前缀 + 行块"两级判定——那套
-                        # 要求整行逐字相等且行长≥12，短行([user]、JSON 片段)
-                        # 永远匹配不上，一处短行就把大片重复切得压不动；
-                        # 也不再豁免"最后一条 user 整段"，OpenClaw 的大内容
-                        # 常落在最后一条 user 里，豁免它等于整轮不压缩。
-                        # 误压防护来自判定本身：只有与本对话已交付内容逐字相同
-                        # 才会省略，且基准按对话标识隔离、上下文超限时即作废。
-                        _c = condense(raw_prompt, _prev,
-                                      protect_prefix=_protect,
-                                      ref_note=_ref_note)
-                        if _c != raw_prompt:
-                            raw_prompt = _c
-                            _condense_applied = True
-                            logger.info(
-                                f"[MsgCondense] 会话 {_fp0} 压缩生效: "
-                                f"{len(_condense_original)} → {len(_c)} 字符"
-                                f"（协议区 {_protect} 字符豁免，逐字比对相同段"
-                                + (f"，省略内容在附件 {_ref_note} 里"
-                                   if _ref_note else "") + "）")
-                except Exception as _e:
-                    logger.debug(f"[MsgCondense] 跳过压缩: {_e}")
-
-            # 体量先按"最多能切几片"拦一道：这种 prompt 附件必被站点拒收，
-            # 回退分片又是永远发不完的 96 片任务，白烧浏览器与账号额度
             try:
-                _cl_est = int(site_config.get('CHUNK_CHARS')
-                              or BrowserConstants.get('DIRECT_CHUNK_CHARS')
-                              or 24000)
-                _n_est = -(-len(raw_prompt) // max(1, _cl_est))
-                _max_chunks = int(BrowserConstants.get(
-                    'MAX_CHUNKED_CHUNKS') or 30)
-                if _n_est > _max_chunks:
-                    raise TooLongError(
-                        f"[LongPrompt] 消息过长：{len(raw_prompt)} 字符需切约"
-                        f" {_n_est} 片（每片 ≤{_cl_est} 字符），超过单请求最多"
-                        f" {_max_chunks} 片的上限。网页端承载不了这种体量："
-                        f"请缩减上下文，或让它走文件而非常驻历史")
-            except ZeroDivisionError:
-                pass
-
-            actual_prompt = raw_prompt
-            upload_strategy = LongPromptRouter.STRATEGY_DIRECT
+                _hist = "\n".join(str(m.get("content") or "")
+                                   for m in (messages or [])[-12:]
+                                   if isinstance(m, dict))
+            except Exception:
+                _hist = ""
+            _chunk_limit = int(site_config.get('CHUNK_CHARS')
+                               or BrowserConstants.get('DIRECT_CHUNK_CHARS')
+                               or 24000)
+            _pkg = self._get_packager().prepare(
+                build_text=lambda ms, with_table: ToolRoundBuilder.build(
+                    ms, tools, tool_choice, protocol_mode="always_table",
+                    think_hint=think_hint),
+                messages=effective_messages, tools=tools,
+                think_hint=think_hint,
+                continuation=bool(is_continuation and not session_new),
+                ckey=_fk, history_text=_hist[-200000:],
+                upload_cfg=upload_cfg, chunk_limit=_chunk_limit,
+                max_chunks=int(BrowserConstants.get('MAX_CHUNKED_CHUNKS')
+                               or 30))
+            raw_prompt = _pkg.body
+            _condense_original = _pkg.original
+            _condense_applied = _pkg.compressed
+            upload_strategy = _pkg.strategy
             upload_payload = None
-            try:
-                # 续聊（工具轮次）同样走长文本路由：多轮工具结果累积后
-                # prompt 可达数万字，直接打进输入框会超过网页输入上限
-                # 导致发送失败，必须落盘为附件
-                upload_strategy, upload_payload = LongPromptRouter.decide(raw_prompt, upload_cfg)
-            except Exception as e:
-                logger.error(f"[LongPrompt] 落盘失败: {e}")
+            # 策略落地成文件（写盘仍由 FileUploadHelper 做），再回填输入框文本
+            if upload_strategy == LongPromptRouter.STRATEGY_FILE:
+                _path, _name = FileUploadHelper.prepare_single_file(
+                    raw_prompt, upload_cfg)
+                upload_payload = {"file_path": _path, "filename": _name}
+            elif upload_strategy == LongPromptRouter.STRATEGY_CHUNKED:
+                upload_payload = {"files": FileUploadHelper.prepare_chunked_files(
+                    raw_prompt, upload_cfg)}
+            if upload_payload is not None:
+                self._get_packager().attach_payload(_fk, _pkg, upload_payload,
+                                                   upload_strategy)
+            actual_prompt = _pkg.composer_text
+            if upload_strategy != LongPromptRouter.STRATEGY_DIRECT:
+                logger.info(f"[LongPrompt] 策略={upload_strategy} "
+                            f"原文={len(_condense_original)} "
+                            f"交付={len(raw_prompt)} 字符 "
+                            f"压缩={'生效' if _condense_applied else '未用'} "
+                            f"基准来源={_pkg.baseline_source or '无'}")
             if is_continuation and upload_strategy != LongPromptRouter.STRATEGY_DIRECT:
                 logger.info(f"[ToolRound] 续聊长文本，走 {upload_strategy} 策略")
-
-            if upload_strategy != LongPromptRouter.STRATEGY_DIRECT:
-                logger.info(f"[LongPrompt] 策略: {upload_strategy}")
-                if upload_strategy == LongPromptRouter.STRATEGY_FILE:
-                    tpl = upload_cfg.get(
-                        "short_prompt_template",
-                        "你是一个具备真实工具调用能力的执行者。请完整阅读我上传的文件 {filename}："
-                        "文件末尾的「工具清单」和「调用格式」章节是最高优先级指令——"
-                        "这里的工具对你真实可用，需要执行操作时，必须严格按该格式输出 tool_call 代码块，"
-                        "绝不要声称“没有可用工具”。如只是闲聊或提问才直接回答。")
-                    actual_prompt = tpl.format(filename=upload_payload["filename"])
-                else:
-                    tpl = upload_cfg.get(
-                        "chunked_prompt_template",
-                        "你是一个具备真实工具调用能力的执行者。我上传了 {count} 个分片文件，"
-                        "请按文件名顺序依次阅读后完成任务：文件末尾的「工具清单」和「调用格式」"
-                        "章节是最高优先级指令——这里的工具对你真实可用，需要执行操作时，"
-                        "必须严格按该格式输出 tool_call 代码块，绝不要声称“没有可用工具”。")
-                    actual_prompt = tpl.format(count=len(upload_payload["files"]))
-                # 工具协议必须内联：poe 对长附件的读取不保证完整，
-                # 末尾的格式指令可能被忽略，导致模型声称"没有工具"。
-                # 与 build() 一致：工具表仅首轮附带（历史无 assistant），
-                # 续传轮只内联防污染+格式提示，不重发工具表 JSON。
-                _has_history = any(
-                    (m.get("role") == "assistant") for m in effective_messages)
-                inline_protocol = ""
-                if tools:
-                    if not _has_history:
-                        inline_protocol = ToolRoundBuilder.tool_protocol(tools)
-                    else:
-                        inline_protocol = ToolRoundBuilder.TOOL_CONTINUATION_HINT
-                if inline_protocol:
-                    actual_prompt += "\n\n" + inline_protocol
-                    logger.info(
-                        "[ToolRound] 工具协议已内联到输入框文本"
-                        f"（{'首轮含工具表' if not _has_history else '续传轮仅格式提示'}）")
 
             executor = WorkflowExecutor(tab, self.stealth_mode,
                                         should_stop_checker=self._should_stop_checker)
@@ -6517,153 +6406,86 @@ class BrowserCore:
                         # 记录键用"发送之后"的对话标识：新会话是在发出第一条消息
                         # 后 URL 才出现 /c/<id>，沿用发送前的键会让下一轮找不到
                         # 基准 → 误判新会话 → 点新聊天丢掉续聊上下文
-                        try:
-                            _cv2 = _conversation_key(executor.tab.url or "")
-                        except Exception:
-                            _cv2 = ""
-                        _fk_rec = (f"{domain}:{_fp0}:{_cv2}"
-                                   if (_fp0 and _cv2) else _fk)
-                        if not hasattr(self, '_fp_last_payload'):
-                            self._fp_last_payload = {}
-                        _via_attach = bool(
-                            context.get("upload_done")
-                            and upload_strategy in (
-                                LongPromptRouter.STRATEGY_FILE,
-                                LongPromptRouter.STRATEGY_CHUNKED))
-                        if _condense_applied or _via_attach:
-                            _rec = _condense_original
-                        elif context.get("chunked_sent"):
-                            # 分片路径：_last_send_payload 是单片（供
-                            # [Dead] 重发用），压缩基准要用完整原文
-                            _rec = context.get("prompt") or ""
-                        else:
-                            _rec = (getattr(executor, '_last_send_payload', '')
-                                    or context.get("prompt") or "")
-                        if _via_attach:
-                            try:
-                                if not hasattr(self, '_fp_attach'):
-                                    self._fp_attach = {}
-                                if (upload_strategy
-                                        == LongPromptRouter.STRATEGY_FILE):
-                                    _names = [str((upload_payload or {})
-                                                  .get("filename") or "")]
-                                else:
-                                    _names = [n for _p, n in
-                                              ((upload_payload or {})
-                                               .get("files") or [])]
-                                _names = [n for n in _names if n]
-                                if _names:
-                                    self._fp_attach[_fk_rec] = {
-                                        "names": _names[:5],
-                                        "label": "、".join(_names[-2:])}
-                                    while len(self._fp_attach) > 64:
-                                        self._fp_attach.pop(
-                                            next(iter(self._fp_attach)))
-                            except Exception as _ae:
-                                logger.debug(
-                                    f"[MsgCondense] 附件基准登记失败: {_ae}")
-                        if _rec:
-                            # 先弹出再插入：活跃会话刷新 LRU 顺序
-                            self._fp_last_payload.pop(_fk_rec, None)
-                            self._fp_last_payload[_fk_rec] = _rec
-                            # 上限 64：OpenClaw 并发子代理多，8 个会把
-                            # 正在续聊的主任务指纹淘汰 → 下一轮误判
-                            # 新会话点"新聊天"，毁掉续聊会话并全量
-                            # 分片重放（2026-11-05 实测）
-                            while len(self._fp_last_payload) > 64:
-                                self._fp_last_payload.pop(
-                                    next(iter(self._fp_last_payload)))
-                            logger.info(
-                                f"[MsgCondense] 已记录会话 {_fk} 交付文本 "
-                                f"{len(_rec)} 字符（下轮压缩比对基准）")
+                        _cv2 = prompt_packager.conversation_id(
+                            getattr(executor.tab, "url", "") or "")
+                        _fk_rec = (f"{domain}:{_cv2}" if _cv2 else _fk)
+                        _pack = self._get_packager()
+                        _pkg.original = _condense_original or _pkg.original
+                        _pack.migrate(_fk, _fk_rec)
+                        # 记的一律是"交付原文"（压缩前那份）：附件轮次模型
+                        # 读的是文件，内容确实交付过；记短模板等于下轮没基准
+                        _pack.record(_fk_rec, _pkg)
                     except Exception as _e:
-                        logger.debug(f"[MsgCondense] 记录失败: {_e}")
+                        logger.debug(f"[Packager] 记录失败: {_e}")
 
         finally:
             SSEFormatter.end_response()
 
-    # 历史附件基准最多读回的字符数（防把超大文件整份拉进比对）
-    _ATTACH_BASELINE_MAX = 4_000_000
-    # 上一轮附件文件名（短模板里会写"请阅读文件 prompt_xxx.txt"）
-    _ATTACH_NAME_RE = r"prompt_\d+_[0-9a-f]{6}(?:_part\d{2}of\d{2})?\.txt"
+    def _get_packager(self) -> PromptPackager:
+        """已交付内容状态与打包决策的唯一持有者（延迟创建，兼容
+        object.__new__ 构造的单测实例）。"""
+        p = self.__dict__.get("_packager_obj")
+        if p is None:
+            p = PromptPackager()
+            self.__dict__["_packager_obj"] = p
+        return p
 
-    def _read_upload_files(self, names: list) -> str:
-        """按文件名从 uploads/ 读回历史附件原文（分片按序拼接复原）。
-        一个都读不到时返回 ""，调用方退回全量发送。"""
-        up_dir = (Path(__file__).resolve().parent / "uploads")
-        parts, total = [], 0
-        for name in names:
-            try:
-                fp = up_dir / name
-                if not fp.is_file():
-                    continue
-                data = fp.read_text(encoding="utf-8", errors="ignore")
-            except OSError as e:
-                logger.debug(f"[MsgCondense] 历史附件读取失败 {name}: {e}")
-                continue
-            parts.append(data)
-            total += len(data)
-            if total >= self._ATTACH_BASELINE_MAX:
-                break
-        return "".join(parts)
+    # 下面三个名字是历史调用点（工作流、上下文超限处理、既有测试）在读写的
+    # 表。真身已经迁进 PromptPackager，这里只留别名：避免出现"browser_core
+    # 里存一份、packager 里存一份"的两份状态——那正是修好这里坏那里的源头。
+    # setter 直接**收养**传进来的字典而不复制：老代码习惯
+    # `self._chunk_progress = {}` 之后原地改，外部（含测试）还拿着同一个对象
+    # 看结果，复制一份就会让它永远读到那个空壳。
+    @property
+    def _fp_last_payload(self) -> Dict[str, str]:
+        return self._get_packager().baseline
+
+    @_fp_last_payload.setter
+    def _fp_last_payload(self, value):
+        self._get_packager().baseline = (
+            value if isinstance(value, dict) else {})
+
+    @property
+    def _fp_attach(self) -> Dict[str, Dict]:
+        return self._get_packager().attachments
+
+    @_fp_attach.setter
+    def _fp_attach(self, value):
+        self._get_packager().attachments = (
+            value if isinstance(value, dict) else {})
+
+    @property
+    def _chunk_progress(self) -> Dict[str, Dict]:
+        return self._get_packager().chunk_progress
+
+    @_chunk_progress.setter
+    def _chunk_progress(self, value):
+        self._get_packager().chunk_progress = (
+            value if isinstance(value, dict) else {})
 
     def _attachment_baseline(self, fk: str, history_text: str) -> tuple:
-        """把"上一轮已经作为附件交付过"的原文弄回来当压缩基准。
+        """比对基准查找——实现已迁到 PromptPackager.find_baseline，
+        这里只留薄封装给老调用点用。返回 (基准文本, 附件说明)。
 
         附件轮次的正文不在会话消息里，输入框只有"请阅读文件 xxx.txt"一句
-        短模板；但内容确实已经交给过模型（它读的是文件）。若因此不比对，
-        下一轮就无从压缩，几万字已交付内容被整份重发（2026-11-05 现场：
-        续聊 prompt 96482 字符仍走 file 策略）。
-        先查本会话记录的附件（内存），没有再从对话历史里认文件名；
-        文件已被 uploads 清理或换机器时读不到，退回全量发送。
-        返回 (基准文本, 附件说明)。"""
-        info = (getattr(self, '_fp_attach', {}) or {}).get(fk) or {}
-        names = list(info.get("names") or [])
-        label = info.get("label") or ""
-        if not names:
-            # 对话历史里找：短模板/分片模板都写了文件名，按出现顺序取最近几个
-            try:
-                found = re.findall(self._ATTACH_NAME_RE, history_text or "")
-            except Exception:
-                found = []
-            names = list(dict.fromkeys(found))[-5:]
-            if names:
-                label = "、".join(names[-2:])
-        if not names:
-            return "", ""
-        text = self._read_upload_files(names)
-        if not text:
-            logger.info(
-                f"[MsgCondense] 历史附件已不在本地 uploads（已清理或换机），"
-                f"本轮按附件比对失败，全量发送: {names}")
-            return "", label
-        return text, label
+        短模板；但内容确实已经交给过模型（它读的是文件）。若不比对，下一轮
+        就无从压缩，几万字已交付内容被整份重发（2026-11-05 现场：续聊
+        prompt 96482 字符仍走 file 策略）。文件已被 uploads 清理或换机器
+        时读不到，退回全量发送。"""
+        prev, note, _src = self._get_packager().find_baseline(fk, history_text)
+        return prev, note
 
     def _invalidate_session_baseline(self, fk: str, why: str = ""):
-        """会话重开后作废一切"已交付"知识：压缩基准、附件登记、分片进度。
+        """会话重开后作废一切"已交付"知识（委托 PromptPackager）。
 
         占位符与断点续传的语义都是"内容已在**这个**对话里"，新对话里上文、
         附件、已发的片都不存在；不作废就会把几万字压成指向虚空的黑洞，
         或从第 N 片起发而前 N-1 片根本不在会话里，表现为"失忆"或死循环。"""
-        if not fk:
-            return
-        for attr in ('_fp_last_payload', '_fp_attach', '_chunk_progress'):
-            m = getattr(self, attr, None)
-            if isinstance(m, dict) and m.pop(fk, None) is not None:
-                logger.info(f"[MsgCondense] 作废 {attr} 中 {fk} 的记录"
-                            f"（{why or '会话已重开'}）")
+        self._get_packager().invalidate(fk, why)
 
     def _has_chunk_progress(self, fk: str, n: Optional[int] = None) -> bool:
         """该会话是否有未完成且仍有效的分片进度（30 分钟内、片数一致）。"""
-        if not fk:
-            return False
-        prog = ((getattr(self, '_chunk_progress', {}) or {}).get(fk) or {})
-        sent = int(prog.get("sent") or 0)
-        if sent <= 0:
-            return False
-        if time.time() - prog.get("ts", 0) > 1800:
-            return False
-        return n is None or prog.get("n") == n
+        return self._get_packager().progress(fk, n) > 0
 
     def _handle_context_limit(self, tab, selectors, fk: str) -> bool:
         """命中站点"上下文窗口已达上限"横幅时：作废基准 + 新起对话。

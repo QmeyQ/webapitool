@@ -38,21 +38,33 @@ def _log_dir(category: str) -> str:
     return path
 
 
+# WAPI_NO_FILE_LOG：跑单测时不往生产日志里写。导入 main 会挂上文件 handler，
+# 之后每条测试日志都落进 log/app/server.log，排查线上问题时那些行看起来
+# 就像真实请求（2026-11-06 实测：把测试造的会话当成龙虾的流量读了一轮）。
+_NO_FILE_LOG = bool(os.environ.get("WAPI_NO_FILE_LOG"))
+
 _fault_log_path = os.path.join(_log_dir("error"), "faulthandler.log")
-_fault_log = open(_fault_log_path, "w", encoding="utf-8", buffering=1)
-faulthandler.enable(_fault_log)
+_fault_log = None
+if _NO_FILE_LOG:
+    faulthandler.enable()
+else:
+    _fault_log = open(_fault_log_path, "w", encoding="utf-8", buffering=1)
+    faulthandler.enable(_fault_log)
 import sys
 import threading
 import traceback
 
 
 def _dump_uncaught(exc_type, exc, tb):
+    if _fault_log is None:          # WAPI_NO_FILE_LOG：交回默认处理
+        sys.__excepthook__(exc_type, exc, tb)
+        return
     try:
         _fault_log.write("\n[UNCAUGHT] "
                          + "".join(traceback.format_exception(exc_type, exc, tb)))
         _fault_log.flush()
     except Exception:
-        pass
+        sys.__excepthook__(exc_type, exc, tb)
 
 
 sys.excepthook = _dump_uncaught
@@ -149,15 +161,18 @@ logging.basicConfig(
 )
 
 # 文件日志：无论进程以何种方式启动（WMI/计划任务/无控制台），
-# 日志始终落盘到 log/app/server.log，避免排查问题时丢失输出
-from logging.handlers import RotatingFileHandler
-_file_handler = RotatingFileHandler(
-    os.path.join(_log_dir("app"), "server.log"),
-    maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8")
-_file_handler.setFormatter(logging.Formatter(
-    '[%(asctime)s] %(levelname)s [%(name)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'))
-logging.getLogger().addHandler(_file_handler)
+# 日志始终落盘到 log/app/server.log，避免排查问题时丢失输出。
+# WAPI_NO_FILE_LOG（单测）时不挂：否则测试日志混进生产日志，
+# 现场取证会把测试造的会话当成真实流量。
+if not _NO_FILE_LOG:
+    from logging.handlers import RotatingFileHandler
+    _file_handler = RotatingFileHandler(
+        os.path.join(_log_dir("app"), "server.log"),
+        maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8")
+    _file_handler.setFormatter(logging.Formatter(
+        '[%(asctime)s] %(levelname)s [%(name)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'))
+    logging.getLogger().addHandler(_file_handler)
 
 logger = logging.getLogger('main')
 
@@ -213,12 +228,16 @@ logging.getLogger().addHandler(web_handler)
 
 # ================= Lifespan =================
 
-def _cleanup_upload_dir(base_dir: Optional[Path] = None) -> tuple:
-    """启动时清掉上一轮超长提示词的落盘文件。
+def _cleanup_upload_dir(base_dir: Optional[Path] = None,
+                        keep_newest: int = 12) -> tuple:
+    """启动时清理上一轮超长提示词的落盘文件，但保留最近 keep_newest 个。
 
-    prepare_single_file / prepare_chunked_files 写完立刻在本次请求里注入，
-    重启后没人再读它们；不清就只会一直堆（实测 470 个 / 40MB）。只删本程序
-    自己写的 prompt_*，不碰用户放进 uploads 的其他文件。
+    为什么不能全删：PromptPackager 找压缩基准时，内存/状态文件里没有的
+    就要从 uploads 把"上一轮作为附件交付过"的原文读回来比对。全删之后
+    基准链就断了——下一轮无从压缩，几万字整份重发（实测重启后同一对话
+    里连发两轮都走附件，因为基准没了）。保留最近若干个既不占空间
+    （每个几十 KB），又让重启后的会话还能继续压缩。
+    只删本程序自己写的 prompt_*，不碰用户放进 uploads 的其他文件。
     """
     up = base_dir if base_dir is not None else (
         Path(os.path.dirname(os.path.abspath(__file__))) / "uploads")
@@ -226,14 +245,16 @@ def _cleanup_upload_dir(base_dir: Optional[Path] = None) -> tuple:
         return (0, 0)
     removed = freed = 0
     try:
-        targets = list(up.glob("prompt_*"))
+        targets = [f for f in up.glob("prompt_*") if f.is_file()]
     except OSError as e:
         logger.warning(f"[Upload] 读取 uploads 失败: {e}")
         return (0, 0)
-    for f in targets:
+    try:
+        targets.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    except OSError:
+        pass
+    for f in targets[max(0, int(keep_newest)):]:
         try:
-            if not f.is_file():
-                continue
             freed += f.stat().st_size
             f.unlink()
             removed += 1
@@ -241,7 +262,8 @@ def _cleanup_upload_dir(base_dir: Optional[Path] = None) -> tuple:
             continue  # 单个文件被占用不影响启动
     if removed:
         logger.info(f"[Upload] 启动清理 uploads：删除 {removed} 个落盘文件，"
-                    f"释放 {freed / 1048576:.1f} MB")
+                    f"释放 {freed / 1048576:.1f} MB（保留最近 {keep_newest} 个"
+                    f"作为压缩基准）")
     return (removed, freed)
 
 

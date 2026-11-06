@@ -10,9 +10,11 @@ REM ===============================
 
 cd /d "%~dp0"
 if not exist "uploads" mkdir "uploads" >nul 2>&1
-REM 启动时清掉上一轮超长提示词的落盘文件（prompt_*），uploads 不再无限堆积
-del /q /f "uploads\prompt_*.txt" >nul 2>&1
-echo     UPLOAD_DIR   : uploads  (超长提示词落盘为 prompt_*.txt，启动时清空)
+REM uploads 的清理交给 main.py 的 _cleanup_upload_dir()（启动时执行）：
+REM 那里只删旧文件、保留最近若干个，因为压缩基准要从 uploads 把上一轮
+REM 作为附件交付过的原文读回来。在这里 del 全部 prompt_*.txt 会断掉基准链，
+REM 表现是重启后同一对话每轮都把几万字整份重发。
+echo     UPLOAD_DIR   : uploads  (超长提示词落盘为 prompt_*.txt，服务启动时按数量清理)
 set "PROJECT_DIR=%cd%"
 
 REM 日志分类目录：app=运行日志 error=错误与崩溃 supervisor=进程管理器捕获 archive=历史
