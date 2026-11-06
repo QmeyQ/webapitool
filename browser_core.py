@@ -94,9 +94,9 @@ class BrowserConstants:
         'DEFAULT_PORT': 9222,
         'CONNECTION_TIMEOUT': 10,
         'EDITOR_READY_TIMEOUT': 30,
-        # 工具表是否逐字送达（不参与压缩）。关掉它属于实验：靠 toollist 口令
-        # 取回清单，省字数但网页 AI 不一定照做，会表现为"没有可用工具"
-        'TOOL_TABLE_PROTECTED': True,
+        # 工具表是否逐字送达（true）或参与压缩（false，默认）。
+        # 压缩时靠提示里那条 toollist 口令索取补发，每个任务只允许补一次。
+        'TOOL_TABLE_PROTECTED': False,
         # 单个请求最多能切多少片：96 片要发十几分钟，客户端早超时重试，
         # 每次重试又从头开始 → 永远停在第 1、2 片（2026-11-05 现场 1MB prompt）
         'MAX_CHUNKED_CHUNKS': 30,
@@ -2421,14 +2421,13 @@ class ToolRoundBuilder:
             + json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
         )
 
-    # 工具清单可压缩后的取回口令：清单被压掉时网页 AI 只回这个词，
-    # 中转识别到就补发完整清单再让它继续作答（每轮至多一次，防死循环）。
+    # 工具表被压缩省略时的那一条提示：写成一条、带上"每任务限一次"，
+    # 既让 AI 知道怎么索取，也防止它反复要。
     TOOL_LIST_TOKEN = "toollist"
     TOOL_LIST_REMINDER = (
-        "〔工具清单机制〕本轮完整工具清单可能已被压缩省略。若你已看不到"
-        "「工具清单」章节、或不确定可调用哪些工具，请只回复 toollist"
-        "（不要附带任何其他内容），我会立刻补发完整清单。需要执行操作时"
-        "仍按清单格式输出 tool_call。\n\n")
+        "〔提示1〕工具表若已被省略而你想不起有哪些工具，只回复 toollist"
+        "索取（不要附带其他内容），我会补发完整清单；每个任务限索取一次，"
+        "之后请正常继续。\n\n")
 
     @staticmethod
     def build(messages: List[Dict], tools: Optional[List[Dict]] = None,
@@ -6086,7 +6085,6 @@ class BrowserCore:
                 # 不停止就发送会被页面忽略
                 executor._ensure_page_idle()
                 pre_send_state = None
-                tool_list_resupplied = False
                 for step in workflow:
                     if self._should_stop_checker():
                         break
@@ -6324,13 +6322,14 @@ class BrowserCore:
                     # （工具表被压缩省略了），当场补发完整清单并继续监听，
                     # 让它在同一个会话里正常作答；每轮至多补发一次
                     if (action in ("STREAM_WAIT", "STREAM_OUTPUT")
-                            and tools and not tool_list_resupplied):
+                            and tools
+                            and self._tool_resupply_allowed(_fk)):
                         if self._ai_asks_tool_list(
                                 getattr(executor, "_final_complete_text", "")):
-                            tool_list_resupplied = True
+                            self._mark_tool_resupplied(_fk)
                             logger.info(
                                 "[ToolList] 网页 AI 回复 toollist，"
-                                "索要完整工具清单")
+                                "补发完整工具清单（本任务仅此一次）")
                             if self._resupply_tool_list(
                                     executor, tools, selectors, context):
                                 yield from executor.execute_step(
@@ -6490,6 +6489,9 @@ class BrowserCore:
         或从第 N 片起发而前 N-1 片根本不在会话里，表现为"失忆"或死循环。"""
         if not fk:
             return
+        used = getattr(self, '_tool_resupplied', None)
+        if isinstance(used, set):
+            used.discard(fk)
         for attr in ('_fp_last_payload', '_fp_attach', '_chunk_progress'):
             m = getattr(self, attr, None)
             if isinstance(m, dict) and m.pop(fk, None) is not None:
@@ -6555,6 +6557,25 @@ class BrowserCore:
         t = (text or "").strip().strip("`*＿_—- \u3000").lower()
         t = t.rstrip("。.!！?？,，~～")
         return t == ToolRoundBuilder.TOOL_LIST_TOKEN
+
+    def _tool_resupply_allowed(self, fk: str) -> bool:
+        """补发工具清单的额度：每个任务只允许一次。
+
+        额度记在任务键上而不是单次请求上——分片任务被客户端超时打断后续传
+        属于同一个任务，重连不能再来一次，否则 AI 反复索取会把会话刷满。"""
+        if not fk:
+            return True
+        return fk not in (getattr(self, "_tool_resupplied", None) or set())
+
+    def _mark_tool_resupplied(self, fk: str):
+        if not fk:
+            return
+        used = getattr(self, "_tool_resupplied", None)
+        if used is None:
+            used = self._tool_resupplied = set()
+        used.add(fk)
+        while len(used) > 64:
+            used.discard(next(iter(used)))
 
     def _resupply_tool_list(self, executor, tools, selectors, context) -> bool:
         """把完整工具清单补发进同一会话（工具表被压缩省略时的取回通道）。"""

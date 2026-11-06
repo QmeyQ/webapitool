@@ -417,6 +417,26 @@ class TestToolListHatch:
         assert bc._ai_asks_tool_list(" toollist ") is True
         assert bc._ai_asks_tool_list("`toollist`") is True
 
+    def test_reminder_is_one_short_clause_with_once_limit(self):
+        """提示改为一条短文本，且把"每任务限一次"写进去防反复索取"""
+        from browser_core import ToolRoundBuilder as T
+        r = T.TOOL_LIST_REMINDER
+        assert r.startswith("〔提示1〕")
+        assert "限索取一次" in r and T.TOOL_LIST_TOKEN in r
+        assert len(r) < 90, f"提示应保持一条，实际 {len(r)} 字符"
+
+    def test_resupply_quota_is_per_task(self):
+        """补发额度按任务计：同一任务（含断点续传重连）只允许一次"""
+        from browser_core import BrowserCore
+        bc = object.__new__(BrowserCore)
+        assert bc._tool_resupply_allowed("task1") is True
+        bc._mark_tool_resupplied("task1")
+        assert bc._tool_resupply_allowed("task1") is False, "同任务不得再补发"
+        assert bc._tool_resupply_allowed("task2") is True, "其他任务不受影响"
+        # 会话重开 = 新任务，额度恢复
+        bc._invalidate_session_baseline("task1", "测试重开")
+        assert bc._tool_resupply_allowed("task1") is True
+
     def test_normal_answers_not_matched(self):
         bc = self._bc()
         assert bc._ai_asks_tool_list("好的，我来执行 toollist 之外的任务") is False
