@@ -136,9 +136,12 @@ class BrowserConstants:
         # 压缩下限：正文不超过这个字符数就不压缩（本来一条消息装得得，
         # 压成占位符只会把任务本体从模型眼前拿走）。0 = 跟随分片大小。
         # 实测 4,051 字符被压到 108 后模型回"请发送完整消息。"
+        # 站点级长内容设置（面板可配，留空跟随这里的全局默认）
         'CONDENSE_MIN_CHARS': 0,
-        # 站点级压缩总开关（面板可关；关掉后每轮整份发送）
         'CONDENSE_ENABLED': True,
+        # 分片之间的间隔：只用于让站点跟上，不等 AI 回复
+        # （等回复会把一条 prompt 的投递时间乘上片数）
+        'CHUNK_SEND_GAP': 0.8,
     }
 
     DEFAULT_PORT = 9222
@@ -261,7 +264,8 @@ def site_setting(site_config: dict, key: str, global_key: str = "",
             return val.strip().lower() not in ("0", "false", "no", "off")
         return bool(val)
     try:
-        return int(val)
+        # 默认值是 float 时保留小数（片间隔 0.8s 被 int() 截成 0 就等于关掉间隔）
+        return float(val) if isinstance(default, float) else int(val)
     except (TypeError, ValueError):
         return default
 
@@ -6437,6 +6441,8 @@ class BrowserCore:
                                                     'MAX_CHUNKED_CHUNKS', 30)
                     context["chunk_limit"] = _chunk_limit
                     context["max_chunked_chunks"] = _max_chunks_here
+                    context["chunk_send_gap"] = site_setting(
+                        _site_cfg, 'CHUNK_SEND_GAP', 'CHUNK_SEND_GAP', 0.8)
                     if (action == "FILL_INPUT"
                             and not context.get("chunked_sent")
                             and upload_strategy == LongPromptRouter.STRATEGY_DIRECT
@@ -6802,11 +6808,18 @@ class BrowserCore:
 
     def _chunked_direct_send(self, executor, context, selectors,
                              chunk_limit: Optional[int] = None):
-        """直输超限兜底：上传不可用（额度耗尽）且消息超过站点单条上限
-        （实测 chatgpt 70K 被拒"你提交的消息过长"）时，把长消息切成
-        ≤DIRECT_CHUNK_CHARS 的多条分开发送：
+        """直输超限兜底：上传不可用（额度耗尽/站点没给上传权限）且消息超过站点
+        单条上限（实测 chatgpt 70K 被拒"你提交的消息过长"）时，把长消息切成
+        ≤分片大小 的多条分开发送：
         - 中间片头部声明"消息尚未发完，请勿回复"
         - 最后一片头部声明"消息已全部发送完毕，请统一回复"
+
+        片与片之间**不等 AI 回复**，只留一点人间间隔（CHUNK_SEND_GAP）：
+        中间片的"收到，请继续"对我们的任务毫无意义，等它等于把一条 prompt
+        的投递时间乘上片数。客户端点"停止"同样不停在这里——半途撂下会让
+        会话里只有前 k 片，后面几万字根本没送达，而"停止"的本意是别再等回答，
+        不是别再送内容。真正该中止的是异常：填充失败、页面不可用、
+        站点拒收且重切到下限、发送校验不通过，都直接抛出。
         发完后由 workflow 正常进入流式监听，等 AI 统一回复。"""
         prompt = context.get("prompt") or ""
         # 片长与片数上限：调用方给的 > 站点级 > 全局 > 代码默认
@@ -6883,85 +6896,165 @@ class BrowserCore:
             logger.info(f"[Chunk] 断点续传：本会话已送达 {i} 片，"
                         f"从第 {i + 1}/{n} 片继续（已发内容不重发）")
         resplit_rounds = 0
+        # 分片投递期间不再向外 yield：客户端点"停止"时外层会 close() 生成器，
+        # 只要我们还挂在一个 yield 上等消费，就会被拦腰终止——会话里只剩前 k 片，
+        # 后面几万字永远没送达（而"停止"的本意是别再等回答，不是别再送内容）。
+        # 站点/校验给出的错误先攒着，整份送完再一次性交出去。
+        pending_msgs: List[str] = []
+        _retry_for: Optional[int] = None   # 正在重投的是第几片
+        _retried = 0
+        _blind = 0                         # "没按钮 + 没回复"连续成立几次
+        _blind_given_up = False            # 等过一次还是这样 → 整份不再等
+        _gap_cfg = context.get("chunk_send_gap")
+        gap = float(site_setting({}, 'CHUNK_SEND_GAP', 'CHUNK_SEND_GAP', 0.8)
+                    if _gap_cfg in (None, '') else _gap_cfg)
         while i < len(chunks):
             ch = chunks[i]
-            if self._should_stop_checker():
-                logger.warning("[Chunk] 分片发送被取消")
-                return
+            # 这里刻意不查 _should_stop_checker()：取消要把剩余分片发完。
+            # 真正的"非正常情况"另有出口——填充失败、页面不可用、
+            # 站点拒收且重切到下限、发送校验不通过，都会直接抛出终止。
             i += 1
-            if i < len(chunks):
-                head = (f"[长消息分片 {i}/{n}] 消息尚未发送完，请勿回复，"
-                        f"等全部 {n} 片发完后再统一处理。\n\n")
+            # 分片头必须把"前文还有几片"讲清楚：网页端把每一片当成独立的
+            # 一条用户消息，不写清楚它就只对**眼前这一片**回一句"收到请继续"，
+            # 整份内容在它眼里从来没有成为一个整体（2026-11-07 用户实测）。
+            if i == 1:
+                head = (f"[长消息分片 1/{n}] 这是一条被中转切成 {n} 片的长消息的"
+                        f"第 1 片，紧接着的 {n - 1} 条消息是它的后半部分，"
+                        "不是新的问题。请勿回答、请勿总结，等第 "
+                        f"{n}/{n} 片发出后再统一处理。\n\n")
+            elif i < len(chunks):
+                head = (f"[长消息分片 {i}/{n}] 前 {i - 1} 片已在本对话里发出，"
+                        f"这 {n} 条消息合起来才是**一条**完整内容。现在还不完整，"
+                        f"请勿回答、请勿逐片回应，等第 {n}/{n} 片发出后统一处理。\n\n")
             else:
-                head = (f"[长消息分片 {i}/{n}] 以上消息已全部发送完毕，"
-                        f"请根据全部内容统一回复。\n\n")
+                head = (f"[长消息分片 {i}/{n}] 以上 {n} 片已全部发送完毕，"
+                        f"它们是同一条消息，现在请把第 1 片到第 {n} 片当作一份"
+                        "完整内容统一处理并回答。\n\n")
+            # ─── 分片投递「何时才允许等待」spec（2026-11-07 用户给定，逐条照抄）───
+            # 判据只有两个事实：上一条（上一片）有没有回复；本条看不看得到
+            # 发送按钮（点得动 / 点不动）。
+            # 规则 A（每次点击之前判）
+            #   A1 上一条有回复   + 本条点得动 → 不等待
+            #   A2 上一条有回复   + 本条点不动 → 不等待
+            #   A3 上一条没有回复 + 本条点得动 → 不等待
+            #   A4 上一条没有回复 + 本条点不动 → 点第二次；第二次还符合 A4 → 等待
+            #   A5 等待之后 → 回到规则 A（按 A1 的节奏继续往下走，不每轮都等）
+            # 规则 B（上一条没有回复时，本条点击之后判）
+            #   B1 本条点得动 → 回到规则 A
+            #   B2 本条点不动 → 再点一次
+            #   B3 第二次还符合 B2 → 等待；等待之后回到规则 A
+            # 实现：_blind = "上一条没回复 + 本条点不动" 连续成立的次数。成立
+            # 一次只记账、照样点（A4/B2 的"点第二次"）；连续两次才等一次
+            # （A4→等待、B3）；等完清零，回到 A1 的节奏（A5）。A 与 B 共用这个
+            # 计数器：B 的"再点一次"会回到这里重新判，两处各自等一遍就成了
+            # "每一轮都等待"，那是用户明确否掉的。
+            _blind = (_blind + 1) if (
+                not self._chunk_btn_visible(executor, send_sel)
+                and not self._chunk_prev_replied(executor, msg_sel)) else 0
+            if _blind >= 2:
+                logger.warning(
+                    f"[Chunk] 第 {i}/{n} 片：上一条没回复且发送按钮看不到，"
+                    "这已是第二次（A4/B3）—— 等一次，等完回到规则 A")
+                self._wait_until_sendable(
+                    executor,
+                    selectors.get("result_container") or msg_sel)
+                _blind = 0            # A5：等过之后回到 A1 的节奏
+            elif _blind == 1:
+                logger.info(
+                    f"[Chunk] 第 {i}/{n} 片：上一条没回复且发送按钮看不到"
+                    "（A4/B2 第一次）—— 照样点第二次，不等待")
+            base_state = executor._capture_send_state(input_sel, msg_sel)
             try:
-                executor._execute_fill(input_sel, head + ch,
-                                       target_key="input_box",
-                                       optional=False, msg_selector=msg_sel)
-            except ElementNotFoundError as e:
-                raise WorkflowError(f"[Chunk] 分片 {i}/{n} 填充失败: {e}")
-            # fill 期间消息已被发出（Enter 发送型站点遇换行提交）：跳过
-            # 点击与校验，等生成平息后继续下一片
-            if getattr(executor, '_fill_submitted', False):
-                logger.info(f"[Chunk] 分片 {i}/{n} 已在填充阶段发出，"
-                            "跳过点击")
+                try:
+                    executor._execute_fill(input_sel, head + ch,
+                                           target_key="input_box",
+                                           optional=False,
+                                           msg_selector=msg_sel)
+                except ElementNotFoundError as e:
+                    raise WorkflowError(f"[Chunk] 分片 {i}/{n} 填充失败: {e}")
+                # fill 期间消息已被发出（Enter 发送型站点遇换行提交）：跳过
+                # 点击与校验，直接发下一片
+                if getattr(executor, '_fill_submitted', False):
+                    logger.info(f"[Chunk] 分片 {i}/{n} 已在填充阶段发出，"
+                                "跳过点击")
+                    executor._last_send_payload = head + ch
+                    executor._last_send_input_sel = input_sel
+                    executor._last_send_btn_sel = send_sel
+                    if i < len(chunks) and gap > 0:
+                        time.sleep(gap)
+                    if fk:
+                        self._chunk_progress[fk] = {"sent": i, "n": n,
+                                                    "conv": conv,
+                                                    "ts": time.time()}
+                    _retry_for, _retried = None, 0
+                    continue
+                # 采样必须在 CLICK 之前：小片上屏快，CLICK 后再采样时新 turn
+                # 已出现、输入框已清空，pre=post 导致"消息数增加/输入框清空"
+                # 两个发送判据全部失效 → 永远误判发送失败
+                pre_send_state = executor._capture_send_state(input_sel,
+                                                              msg_sel)
+                try:
+                    executor._sent_from_url = executor.tab.url or ''
+                except Exception:
+                    executor._sent_from_url = ''
+                # 记录本次发送（无回复时同会话重发一次用；
+                # [Dead] 恢复逻辑在 WorkflowExecutor 上读取）
                 executor._last_send_payload = head + ch
                 executor._last_send_input_sel = input_sel
                 executor._last_send_btn_sel = send_sel
-                if i < len(chunks):
-                    time.sleep(1.5)
-                    self._wait_generation_settled(executor, timeout=90)
-                if fk:
-                    self._chunk_progress[fk] = {"sent": i, "n": n,
-                                                "conv": conv,
-                                                "ts": time.time()}
-                continue
-            # 采样必须在 CLICK 之前：小片上屏快，CLICK 后再采样时新 turn
-            # 已出现、输入框已清空，pre=post 导致"消息数增加/输入框清空"
-            # 两个发送判据全部失效 → 永远误判发送失败
-            pre_send_state = executor._capture_send_state(input_sel, msg_sel)
-            try:
-                executor._sent_from_url = executor.tab.url or ''
-            except Exception:
-                executor._sent_from_url = ''
-            # 记录本次发送（无回复时同会话重发一次用；
-            # [Dead] 恢复逻辑在 WorkflowExecutor 上读取）
-            executor._last_send_payload = head + ch
-            executor._last_send_input_sel = input_sel
-            executor._last_send_btn_sel = send_sel
-            try:
-                # execute_step 是生成器函数：必须迭代才会真正执行
-                # （2026-11-05 poe 事故实锤——此前只调用不迭代，分片
-                # 发送的 CLICK 从未真正执行，全靠 fill 自动提交碰巧顶上）
-                for _err_chunk in executor.execute_step(
-                        action="CLICK", selector=send_sel,
-                        target_key="send_btn", value=None,
-                        optional=False, context=context):
-                    if _err_chunk:
-                        yield _err_chunk
-            except (ElementNotFoundError, WorkflowError) as e:
-
-                raise WorkflowError(f"[Chunk] 分片 {i}/{n} 发送失败: {e}")
-            try:
-                yield from executor._verify_and_recover_send(
-                    executor, selectors, pre_send_state)
-            except WorkflowError:
-                # 兜底复核：校验信号全灭但对比填充前基线消息数/轮数已
-                # 增长 → 实际已发送（信号选择器失效场景，2026-11-04 poe
-                # 实测），不能误判失败去全量重放
-                time.sleep(1.5)
-                _late = executor._capture_send_state(input_sel, msg_sel)
-                _grew = (
-                    _late.get("msg_count", -1) > pre_send_state.get("msg_count", -1)
-                    or _late.get("turn_count", -1)
-                    > pre_send_state.get("turn_count", -1))
-                if not _grew:
-                    raise
-                logger.info(
-                    f"[Chunk] 分片 {i}/{n} 校验信号未动，但复核确认消息已"
-                    f"上屏（msg {_late.get('msg_count')}，"
-                    f"turn {_late.get('turn_count')}），继续")
+                try:
+                    # execute_step 是生成器函数：必须迭代才会真正执行
+                    # （2026-11-05 poe 事故实锤——此前只调用不迭代，分片
+                    # 发送的 CLICK 从未真正执行，全靠 fill 自动提交碰巧顶上）
+                    for _err_chunk in executor.execute_step(
+                            action="CLICK", selector=send_sel,
+                            target_key="send_btn", value=None,
+                            optional=False, context=context):
+                        if _err_chunk:
+                            pending_msgs.append(_err_chunk)
+                except (ElementNotFoundError, WorkflowError) as e:
+                    raise WorkflowError(f"[Chunk] 分片 {i}/{n} 发送失败: {e}")
+                for _vc in executor._verify_and_recover_send(
+                        executor, selectors, pre_send_state):
+                    if _vc:
+                        pending_msgs.append(_vc)
+            except WorkflowError as _we:
+                # 规则 B：已点击却"没回复 + 还是点不动"。
+                # 复核这片到底进没进会话（消息数/轮数有没有增长，金标准）：
+                #   进了 —— 属于表 A 的第 1/2 种，计数器归零，继续下一片；
+                #   没进（=点不动）—— 再点一次；第二次还这样才等，等完归零。
+                # 计数器与表 A 共用一个，所以"先点一次、第二次才等"跨前后两步
+                # 成立，绝不会每片都等。
+                time.sleep(1.0)
+                try:
+                    _late = executor._capture_send_state(input_sel, msg_sel)
+                    _seen = (
+                        _late.get("msg_count", -1)
+                        > base_state.get("msg_count", -1)
+                        or _late.get("turn_count", -1)
+                        > base_state.get("turn_count", -1))
+                except Exception:
+                    _seen = False
+                if _seen:
+                    logger.info(
+                        f"[Chunk] 分片 {i}/{n} 已进会话，站点还没回复——"
+                        "不等输出，继续下一片")
+                else:
+                    if _retry_for != i:
+                        _retry_for, _retried = i, 0
+                    _retried += 1
+                    if _retried > 2:
+                        logger.error(
+                            f"[Chunk] 分片 {i}/{n} 点了 3 次都没进会话")
+                        raise
+                    # 规则 B 的"再点一次"：这里只重投，等不等归表 A 那道闸门
+                    # 管（重投会回到循环开头，那里第二次still"没回复 + 点不动"
+                    # 就会等）——两处都等就会出现"每片都等"，用户明确不要。
+                    logger.warning(
+                        f"[Chunk] 分片 {i}/{n} 没点动（{str(_we)[:70]}），"
+                        f"再点一次（第 {_retried} 次）")
+                    i -= 1
+                    continue
             # 检测 chatgpt 拒收（新版 UI 在消息 turn 内渲染错误面板
             # "你提交的消息过长，请编辑后重新发送"，消息未进入对话）。
             # 关键是"这个面板是不是在说我们刚发的这一片"：面板长在哪个 turn
@@ -7027,20 +7120,25 @@ class BrowserCore:
                 chunks = chunks[:i - 1] + re_split
                 n = len(chunks)
                 i -= 1
+                _retry_for, _retried = None, 0
                 continue
             self._chunk_reject_key = None
+            _retry_for, _retried = None, 0
             logger.info(f"[Chunk] 分片 {i}/{n} 已发送"
                         f"（{len(head + ch)} 字符）")
             if fk:
                 self._chunk_progress[fk] = {"sent": i, "n": n,
                                             "conv": conv,
                                             "ts": time.time()}
-            if i < len(chunks):
-                # 等 AI 对本片的反应平息再发下一片（实测连发太快时
-                # chatgpt 三片全发完仍静默零产出；模拟真人分条发消息，
-                # AI 中间可能回"收到，请继续"，下一片头部会再次声明）
-                time.sleep(1.5)
-                self._wait_generation_settled(executor, timeout=90)
+            if i < len(chunks) and gap > 0:
+                # 只留一点人间间隔（连发太快站点会把消息挤掉/发送按钮来不及
+                # 启用），不去读它回了什么。
+                # 要不要等由循环开头那道闸门按这张表决定（2026-11-07 用户定）：
+                #   上一条有回复 + 本条点得动 → 不等
+                #   上一条有回复 + 本条点不动 → 不等
+                #   上一条没回复 + 本条点得动 → 不等
+                #   上一条没回复 + 本条点不动 → 再点一次；第二次还点不动才等
+                time.sleep(gap)
         if fk:
             # 全部送达：断点清掉，否则下一份不同的 prompt 会被"续"到半空
             self._chunk_progress.pop(fk, None)
@@ -7054,6 +7152,48 @@ class BrowserCore:
         except Exception as _ce:
             logger.debug(f"[Chunk] 重抓发送前计数失败: {_ce}")
         logger.info(f"[Chunk] {len(chunks)} 片全部发送完毕，等待 AI 统一回复")
+        for _m in pending_msgs:
+            # 投递期间的站点/校验提示，到这里整份已送完才交出去
+            yield _m
+
+    def _chunk_btn_visible(self, executor, send_sel: str) -> bool:
+        """这一Moment发送按钮在不在（可见且未禁用）。
+
+        只数一眼，不为它等待：ChatGPT 空闲时才有按钮，生成期间按钮换成
+        别的控件甚至整个消失——所以"没有按钮"单独不构成等的理由，
+        要和"上一条完全没有回复"一起才等。
+        选择器解析不了时按"有按钮"处理（宁可少等，也不要把投递卡死）。"""
+        css = _plain_css(send_sel)
+        if not css:
+            return True
+        try:
+            n = executor.tab.run_js(
+                'try{'
+                'let n=0;'
+                'for (const el of document.querySelectorAll(%s)) {'
+                '  const r = el.getBoundingClientRect();'
+                '  if (r.width > 0 && r.height > 0 && !el.disabled) n++;'
+                '}'
+                'return n;'
+                '}catch(e){return -1;}' % json.dumps(css))
+        except Exception:
+            return True
+        try:
+            n = int(n)
+        except Exception:
+            return True
+        return n > 0 if n >= 0 else True
+
+    def _chunk_prev_replied(self, executor, msg_sel: str) -> bool:
+        """上一条（上一片）到现在有没有回复。
+
+        判据只看最后一条里有没有正文字数：有一点就算"已经回了"，不再等；
+        零输出才认为站点还卡在上一条上。"""
+        try:
+            snap = executor._get_latest_message_snapshot(msg_sel or "")
+        except Exception:
+            return True
+        return int(snap.get("text_len") or 0) > 0
 
     def _wait_generation_settled(self, executor, timeout: float = 90):
         """等待 AI 生成停止（stop 按钮消失后静止 3s）或超时。"""
@@ -7075,6 +7215,45 @@ class BrowserCore:
             elif time.time() - last_active > 3:
                 return
             time.sleep(1.0)
+
+    def _wait_until_sendable(self, executor, msg_sel: str,
+                             timeout: float = 120.0,
+                             stable_for: float = 3.0) -> bool:
+        """等站点把上一条消息消化完（生成信号消失且快照稳定）再发下一片。
+
+        片间不等待会**丢内容**：生成期间 composer 的发送口不可用，回退的
+        元素点击只是空转（日志 `send_btn 候选状态: []`），后面的片段根本没
+        进会话，模型于是只回一句"请继续发送剩余内容。"
+
+        判据用流监听那套生成信号（快照里的 is_generating），不用 stop 按钮
+        选择器——ChatGPT 改版后 _wait_generation_settled 那条已经匹配不到，
+        实测三片之间只隔 2 秒，等于完全没等。
+
+        这里刻意不看客户端取消标志：取消的意思是"别再等最终回答"，
+        不是"别再送内容"——半途停下才是真的把内容丢掉。"""
+        deadline = time.time() + max(5.0, timeout)
+        last_key = None
+        stable_since = time.time()
+        while time.time() < deadline:
+            try:
+                snap = executor._get_latest_message_snapshot(msg_sel or "")
+            except Exception:
+                return True
+            if snap.get("is_generating"):
+                last_key = None
+                stable_since = time.time()
+                time.sleep(1.0)
+                continue
+            key = (snap.get("groups_count"), snap.get("text_len"),
+                   snap.get("think_len"))
+            if key != last_key:
+                last_key = key
+                stable_since = time.time()
+            elif time.time() - stable_since >= stable_for:
+                return True
+            time.sleep(0.8)
+        logger.info("[Chunk] 等待发送口空出超时，仍继续发送剩余片段")
+        return False
 
     def _execute_workflow_non_stream(self, messages: List[Dict],
                                      tools: Optional[List[Dict]] = None,
