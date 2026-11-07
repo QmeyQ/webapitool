@@ -235,13 +235,13 @@ def test_blind_gate_waits_only_on_the_second_hit():
         f"实际等了 {blind.sendable_waits} 次")
     assert len(blind.sent) == 3, "等完之后三片仍要全部送达"
 
-    # A5：等过一次回到第 1 种情况的节奏——不是永远不等，而是要再"连着两次
-    # 成立"才会再等一次，所以四片最多等两次，绝不是一片等一次。
+    # 第 1 片没有"上一条"，不参与计数；四片里只有第 3 片凑满"连续两次"，
+    # 等过一次即清零，第 4 片重新从"第一次成立"算起——绝不是每轮都等。
     four = FakeExecutor(reject_over=99999)
     four.btn_visible, four.prev_replied = False, False
     _run_chunks('X' * 48000, ex=four)          # 4 片
-    assert four.sendable_waits == 2, (
-        f"等待按『连着两次成立』计，四片只该等两次，实际 {four.sendable_waits} 次")
+    assert four.sendable_waits == 1, (
+        f"第 1 片不计数，四片只该等那一次，实际 {four.sendable_waits} 次")
     assert len(four.sent) == 4, "四片仍要全部送达"
 
 

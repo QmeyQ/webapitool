@@ -6948,8 +6948,12 @@ class BrowserCore:
             # （A4→等待、B3）；等完清零，回到 A1 的节奏（A5）。A 与 B 共用这个
             # 计数器：B 的"再点一次"会回到这里重新判，两处各自等一遍就成了
             # "每一轮都等待"，那是用户明确否掉的。
+            # 第 1 片没有"上一条"，不参与计数：把它算进去会让第 2 片就成了
+            # "连续第二次"，实测 11:52:37 那次等待就是这么冒出来的（上一片
+            # 1 秒前才刚发出去，站点本来就来不及回）。
             _blind = (_blind + 1) if (
-                not self._chunk_btn_visible(executor, send_sel)
+                i > 1
+                and not self._chunk_btn_visible(executor, send_sel)
                 and not self._chunk_prev_replied(executor, msg_sel)) else 0
             if _blind >= 2:
                 logger.warning(
